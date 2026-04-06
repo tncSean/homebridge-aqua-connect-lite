@@ -1,0 +1,48 @@
+{
+  "pluginAlias": "AquaConnectLite",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "title": "Aqua Connect Lite Plugin",
+    "type": "object",
+    "properties": {
+      "bridge_ip_address": {
+        "title": "Bridge IP Address",
+        "type": "string",
+        "required": true,
+        "description": "IP address of your Aqua Connect Home Network device (e.g., 192.168.1.65)"
+      },
+      "exclude_accessories": {
+        "title": "Exclude Accessories",
+        "description": "Accessories to exclude from Homebridge. Uncheck to disable.",
+        "type": "array",
+        "uniqueItems": true,
+        "items": {
+          "title": "Accessory",
+          "type": "string",
+          "enum": [
+            "Pool Light",
+            "Aux 1",
+            "Aux 2"
+          ]
+        }
+      },
+      "request_timeout": {
+        "title": "Request Timeout (ms)",
+        "type": "integer",
+        "default": 5000,
+        "minimum": 1000,
+        "maximum": 30000,
+        "description": "HTTP request timeout in milliseconds. Default: 5000"
+      },
+      "retry_attempts": {
+        "title": "Retry Attempts",
+        "type": "integer",
+        "default": 3,
+        "minimum": 0,
+        "maximum": 5,
+        "description": "Number of retry attempts for failed requests. Default: 3"
+      }
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "displayName": "Aqua Connect Lite",
+  "name": "homebridge-aqua-connect-lite",
+  "version": "2.0.0",
+  "description": "Control your Hayward pool controller via HomeKit. Supports Pool Light, Aux relays, and more.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tncSean/homebridge-aqua-connect-lite.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tncSean/homebridge-aqua-connect-lite/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "homebridge": ">=1.3.5"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "lint": "eslint src/**/*.ts --max-warnings=0",
+    "watch": "npm run build && npm link && nodemon",
+    "build": "rimraf ./dist && tsc",
+    "prepublishOnly": "npm run lint && npm run build",
+    "clean": "rimraf ./dist"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "aqua-connect-lite",
+    "aqua connect lite",
+    "aquaconnectlite",
+    "aqua-connect",
+    "aqua connect",
+    "aquaconnect",
+    "hayward",
+    "pool controller",
+    "hayward pool"
+  ],
+  "dependencies": {
+    "axios": "^1.8.4",
+    "node-html-parser": "^7.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@typescript-eslint/eslint-plugin": "^8.26.1",
+    "@typescript-eslint/parser": "^8.26.1",
+    "eslint": "^9.22.0",
+    "homebridge": "^1.8.5",
+    "nodemon": "^3.1.9",
+    "rimraf": "^6.0.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.2"
+  }
+}
