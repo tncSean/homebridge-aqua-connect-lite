@@ -54,7 +54,9 @@ export class Switch {
                 this.accessory.context.device.STATUS_KEY_INDEX
             );
 
-            const isDeviceOn = deviceState === 'on';
+            const invert = this.accessory.context.device.INVERT === true;
+            const onLedValue = invert ? 'off' : 'on';
+            const isDeviceOn = deviceState === onLedValue;
             const isStateInSync = isDeviceOn === value;
 
             this.platform.log.debug(
@@ -80,7 +82,7 @@ export class Switch {
 
                 } catch (error) {
                     this.platform.log.error(`${this.accessory.displayName} toggle failed: ${(error as Error).message}`);
-                    throw this.platform.api.hap.HapStatusError(
+                    throw new this.platform.api.hap.HapStatusError(
                         this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
                     );
                 } finally {
@@ -98,7 +100,7 @@ export class Switch {
                 throw error;
             }
             this.platform.log.error(`${this.accessory.displayName} setOn failed: ${(error as Error).message}`);
-            throw this.platform.api.hap.HapStatusError(
+            throw new this.platform.api.hap.HapStatusError(
                 this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
             );
         }
@@ -129,14 +131,16 @@ export class Switch {
                 this.accessory.context.device.STATUS_KEY_INDEX
             );
 
-            this.currentState.IsOn = deviceState === 'on';
+            const invert = this.accessory.context.device.INVERT === true;
+            const onLedValue = invert ? 'off' : 'on';
+            this.currentState.IsOn = deviceState === onLedValue;
             this.platform.log.debug(`${this.accessory.displayName} getOn success: ${this.currentState.IsOn}`);
 
             return this.currentState.IsOn;
 
         } catch (error) {
             this.platform.log.error(`${this.accessory.displayName} getOn failed: ${(error as Error).message}`);
-            throw this.platform.api.hap.HapStatusError(
+            throw new this.platform.api.hap.HapStatusError(
                 this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
             );
         }

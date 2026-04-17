@@ -80,7 +80,7 @@ export class Light {
 
                 } catch (error) {
                     this.platform.log.error(`${this.accessory.displayName} toggle failed: ${(error as Error).message}`);
-                    throw this.platform.api.hap.HapStatusError(
+                    throw new this.platform.api.hap.HapStatusError(
                         this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
                     );
                 } finally {
@@ -98,7 +98,7 @@ export class Light {
                 throw error;
             }
             this.platform.log.error(`${this.accessory.displayName} setOn failed: ${(error as Error).message}`);
-            throw this.platform.api.hap.HapStatusError(
+            throw new this.platform.api.hap.HapStatusError(
                 this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
             );
         }
@@ -136,7 +136,7 @@ export class Light {
 
         } catch (error) {
             this.platform.log.error(`${this.accessory.displayName} getOn failed: ${(error as Error).message}`);
-            throw this.platform.api.hap.HapStatusError(
+            throw new this.platform.api.hap.HapStatusError(
                 this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
             );
         }

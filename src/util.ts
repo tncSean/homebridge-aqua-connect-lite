@@ -127,30 +127,42 @@ export const ToggleDeviceState = async (
  * @returns The raw LED status string (e.g., "333333453333...")
  * @throws Error if the HTML format is unrecognized
  */
+// Characters that can appear in the raw LED status string. These map to
+// two-nibble ASCII pairs in ExtractNibbles() below; any character not in
+// this set is garbage and should not be part of the extracted string.
+const LED_CHAR_CLASS = '3-6C-FSTUVc-f';
+// Minimum raw LED string length. Real firmware responses have been
+// observed as short as 11-12 chars (each raw char expands to 2 decoded
+// bytes). Require at least 8 to distinguish a real status string from
+// incidental matches elsewhere in the page.
+const LED_MIN_RAW_LEN = 8;
+
 const GetRawLedStatus = (htmlData: string): string => {
     try {
         const root = parse(htmlData);
         const bodyText = root.querySelector('body')?.text || '';
 
-        // Primary method: split on 'xxx' delimiter
+        // Primary method: split on 'xxx' delimiter; the LED status is in
+        // the third segment on current firmware ("segment 2" zero-indexed).
         const splitResults = bodyText.split('xxx');
-
+        const candidateRe = new RegExp(`^[${LED_CHAR_CLASS}]+$`);
         if (splitResults.length >= 3) {
             const candidate = splitResults[2].trim();
-            // Validate: LED status should be 24+ chars of valid status codes
-            if (candidate.length >= 24 && /^[3-6C-S]+$/.test(candidate)) {
+            if (candidate.length >= LED_MIN_RAW_LEN && candidateRe.test(candidate)) {
                 return candidate;
             }
         }
 
-        // Fallback: look for LED status pattern directly in body text
-        // Pattern: 24+ consecutive valid status characters
-        const ledPattern = /([3-6C-S]{24,})/.exec(bodyText);
-        if (ledPattern) {
-            return ledPattern[1];
+        // Fallback: scan the whole body for the longest run of valid
+        // LED characters. Guards against firmware versions that emit
+        // the string in a different position or with altered delimiters.
+        const ledPattern = new RegExp(`([${LED_CHAR_CLASS}]{${LED_MIN_RAW_LEN},})`, 'g');
+        let best = '';
+        for (const m of bodyText.matchAll(ledPattern)) {
+            if (m[1].length > best.length) best = m[1];
         }
+        if (best) return best;
 
-        // If we get here, the HTML format doesn't match expected patterns
         throw new Error(`Invalid controller response: expected LED status pattern, got "${bodyText.substring(0, 100)}..."`);
 
     } catch (error) {

@@ -12,18 +12,51 @@
         "required": true,
         "description": "IP address of your Aqua Connect Home Network device (e.g., 192.168.1.65)"
       },
+      "w610_ip": {
+        "title": "W610 RS-485 Bridge IP",
+        "type": "string",
+        "default": "192.168.1.70",
+        "description": "IP of the USR-W610 bus bridge. Used by the Thermostat, Chlorinator, Filter Pump, Super Chlorinate switch, and temperature sensors. Leave blank to disable AquaLogic accessories."
+      },
+      "w610_port": {
+        "title": "W610 TCP Port",
+        "type": "integer",
+        "default": 8899,
+        "minimum": 1,
+        "maximum": 65535,
+        "description": "TCP port on the W610 for the RS-485 passthrough. Default: 8899."
+      },
+      "super_chlorinate_key": {
+        "title": "Super Chlorinate Button Mapping",
+        "type": "string",
+        "default": "AUX_3",
+        "description": "The Pro Logic button you programmed to trigger Super Chlorinate (AUX_1..AUX_14). Match what's configured on the controller keypad.",
+        "enum": [
+          "AUX_1", "AUX_2", "AUX_3", "AUX_4", "AUX_5", "AUX_6", "AUX_7",
+          "AUX_8", "AUX_9", "AUX_10", "AUX_11", "AUX_12", "AUX_13", "AUX_14",
+          "LIGHTS", "VALVE_3", "VALVE_4"
+        ]
+      },
       "exclude_accessories": {
         "title": "Exclude Accessories",
         "description": "Accessories to exclude from Homebridge. Uncheck to disable.",
         "type": "array",
         "uniqueItems": true,
+        "default": ["Aux 1", "Aux 2"],
         "items": {
           "title": "Accessory",
           "type": "string",
           "enum": [
             "Pool Light",
+            "Waterfalls",
             "Aux 1",
-            "Aux 2"
+            "Aux 2",
+            "Pool Heater",
+            "Chlorinator",
+            "Super Chlorinate",
+            "Filter Pump",
+            "Pool Water Temp",
+            "Air Temp"
           ]
         }
       },
