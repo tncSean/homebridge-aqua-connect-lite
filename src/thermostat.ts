@@ -170,17 +170,22 @@ export class Thermostat {
         const sp = this.client.state.current.heaterSetpointF;
         const want = value === this.platform.Characteristic.TargetHeatingCoolingState.OFF ? 'off' : 'on';
         const isOff = sp === 'off' || sp === undefined;
-        // Toggle only if state differs. HEATER key cycles through modes;
-        // after one press we read the next DISPLAY_UPDATE to confirm.
+        this.platform.log.info(
+            `${this.accessory.displayName} setTargetState value=${value} want=${want} sp=${sp} isOff=${isOff}`,
+        );
         if ((want === 'off' && !isOff) || (want === 'on' && isOff)) {
             try {
+                this.platform.log.info(`${this.accessory.displayName} sending HEATER_1 key (0x${Key.HEATER_1.toString(16)})`);
                 await this.client.sendKey(Key.HEATER_1);
+                this.platform.log.info(`${this.accessory.displayName} HEATER_1 key sent`);
             } catch (e) {
                 this.platform.log.error(`${this.accessory.displayName} HEATER toggle failed: ${(e as Error).message}`);
                 throw new this.platform.api.hap.HapStatusError(
                     this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE,
                 );
             }
+        } else {
+            this.platform.log.info(`${this.accessory.displayName} no-op: already in target state`);
         }
     }
 

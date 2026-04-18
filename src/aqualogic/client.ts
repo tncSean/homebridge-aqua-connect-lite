@@ -11,7 +11,7 @@
  */
 import { EventEmitter } from 'events';
 import * as net from 'net';
-import { encodeFrame, FrameExtractor, FrameType } from './frame';
+import { encodeFrame, FrameExtractor, FrameType, isFrameType } from './frame';
 import { Key, KeyValue } from './keys';
 import { PoolStateStore } from './state';
 
@@ -49,6 +49,13 @@ export class AquaLogicClient extends EventEmitter {
             } catch (e) {
                 this.log.warn(`state ingest failed: ${(e as Error).message}`);
             }
+            // RS-485 collision avoidance: the Pro Logic only listens for
+            // wireless-key frames in the quiet window right after sending
+            // a KEEP_ALIVE. Writing at any other moment collides with the
+            // panel's own transmission and the frame is silently dropped.
+            if (isFrameType(payload, FrameType.KEEP_ALIVE)) {
+                this.flushOnePending();
+            }
         });
         this.state.on('change', (key, value) => {
             // Display text churns with every cycle — keep that at debug. All
@@ -84,7 +91,13 @@ export class AquaLogicClient extends EventEmitter {
         return this.connected;
     }
 
-    /** Send a keypress event. Returns after the bytes are written. */
+    /**
+     * Send a keypress event. Queues the frame and flushes on the next
+     * incoming KEEP_ALIVE. Rejects if no slot opens within SEND_TIMEOUT_MS.
+     */
+    private static readonly SEND_TIMEOUT_MS = 5000;
+    private pending: Array<{ wire: Buffer; resolve: () => void; reject: (e: Error) => void; timer: NodeJS.Timeout }> = [];
+
     sendKey(key: KeyValue): Promise<void> {
         return new Promise((resolve, reject) => {
             if (!this.socket || !this.connected) {
@@ -92,7 +105,31 @@ export class AquaLogicClient extends EventEmitter {
             }
             const payload = this.buildKeyPayload(key);
             const wire = encodeFrame(payload);
-            this.socket.write(wire, err => err ? reject(err) : resolve());
+            const entry = { wire, resolve, reject } as Partial<typeof this.pending[number]> as typeof this.pending[number];
+            entry.timer = setTimeout(() => {
+                const idx = this.pending.indexOf(entry);
+                if (idx >= 0) this.pending.splice(idx, 1);
+                reject(new Error('sendKey timed out waiting for bus slot (no KEEP_ALIVE within 5s)'));
+            }, AquaLogicClient.SEND_TIMEOUT_MS);
+            this.pending.push(entry);
+            this.log.debug(`sendKey queued (${this.pending.length} pending)`);
+        });
+    }
+
+    private flushOnePending(): void {
+        const entry = this.pending.shift();
+        if (!entry) return;
+        clearTimeout(entry.timer);
+        if (!this.socket || !this.connected) {
+            entry.reject(new Error('disconnected before send'));
+            return;
+        }
+        this.socket.write(entry.wire, err => {
+            if (err) entry.reject(err);
+            else {
+                this.log.debug(`sendKey flushed on KEEP_ALIVE (${this.pending.length} still pending)`);
+                entry.resolve();
+            }
         });
     }
 
@@ -165,6 +202,12 @@ export class AquaLogicClient extends EventEmitter {
         sock.on('close', () => {
             this.connected = false;
             this.socket = null;
+            // Reject any in-flight key presses — they can't land without a bus.
+            while (this.pending.length) {
+                const entry = this.pending.shift()!;
+                clearTimeout(entry.timer);
+                entry.reject(new Error('socket closed before send'));
+            }
             this.emit('disconnected');
             if (this.stopping) return;
             const delay = Math.min(this.reconnectDelay, this.maxReconnectDelay);

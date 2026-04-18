@@ -1,7 +1,7 @@
 {
   "displayName": "Aqua Connect Lite",
   "name": "homebridge-aqua-connect-lite",
-  "version": "3.0.7",
+  "version": "3.0.9",
   "description": "Control your Hayward pool controller via HomeKit. v3 adds RS-485 thermostat, chlorinator, filter pump, super-chlorinate, and water/air temperature sensors via a USR-W610 bus bridge.",
   "license": "Apache-2.0",
   "repository": {
