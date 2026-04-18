@@ -102,7 +102,6 @@ export const ACCESSORIES: AccessoryConfig[] = [
         TRANSPORT: 'http',
         PROCESS_KEY_NUM: '11',
         STATUS_KEY_INDEX: 7,
-        INVERT: true,
     },
     {
         NAME: 'Aux 1',
