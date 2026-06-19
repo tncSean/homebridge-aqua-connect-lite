@@ -1,6 +1,6 @@
 /** Unit tests for the PURE next-best-action advisor. No I/O. */
 import * as assert from 'node:assert';
-import { nextBestAction, saltDoseLbs, cyaDoseLbs, NextActionInput } from './nextaction';
+import { nextBestAction, saltDoseLbs, cyaDoseLbs, cyaDoseOz, NextActionInput } from './nextaction';
 
 let passed = 0;
 function test(name: string, fn: () => void): void {
@@ -88,6 +88,25 @@ test('cyaDoseLbs rounds to nearest 0.5', () => {
     assert.strictEqual(cyaDoseLbs(0, 30, 10000), 2.5);
     // 0→20 @ 10000 gal: (1) * (2) * 0.8 = 1.6 → 1.5
     assert.strictEqual(cyaDoseLbs(0, 20, 10000), 1.5);
+});
+
+test('cyaDoseOz 14→40 @ 31400 gal, 4 oz/ppm/10k → 325 oz', () => {
+    // (31400/10000) * (40-14) * 4 = 3.14 * 26 * 4 = 326.56 → nearest 5 = 325
+    assert.strictEqual(cyaDoseOz(14, 40, 31400, 4), 325);
+});
+
+test('cyaDoseOz at/above target → 0', () => {
+    assert.strictEqual(cyaDoseOz(40, 40, 31400, 4), 0);
+    assert.strictEqual(cyaDoseOz(55, 40, 31400, 4), 0);
+});
+
+test('cyaDoseOz rounds to nearest 5', () => {
+    // 0→10 @ 10000 gal, 4 oz: (1) * 10 * 4 = 40 → 40
+    assert.strictEqual(cyaDoseOz(0, 10, 10000, 4), 40);
+    // 0→3 @ 10000 gal, 4 oz: (1) * 3 * 4 = 12 → nearest 5 = 10
+    assert.strictEqual(cyaDoseOz(0, 3, 10000, 4), 10);
+    // 0→4 @ 10000 gal, 4 oz: (1) * 4 * 4 = 16 → nearest 5 = 15
+    assert.strictEqual(cyaDoseOz(0, 4, 10000, 4), 15);
 });
 
 // eslint-disable-next-line no-console

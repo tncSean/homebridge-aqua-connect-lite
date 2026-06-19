@@ -49,8 +49,11 @@ export class ChemistrySensor {
             this.platform.Characteristic.StatusFault.NO_FAULT,
         );
         // Add the custom read-only "Reading" characteristic to the service.
-        // getCharacteristic(constructor) auto-adds it if absent.
+        // Declare it as OPTIONAL first so HAP doesn't log a "Characteristic not
+        // in required or optional section … Adding anyway" warning, THEN
+        // getCharacteristic(constructor) auto-adds the instance.
         this.Reading = makeReadingCharacteristic(this.platform.api);
+        this.service.addOptionalCharacteristic(this.Reading);
         this.service.getCharacteristic(this.Reading).updateValue('');
     }
 

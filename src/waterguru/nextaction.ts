@@ -40,11 +40,28 @@ export function saltDoseLbs(currentPpm: number, targetPpm: number, gallons: numb
  * Cyanuric acid (stabilizer) dose (lbs) to raise current->target for the given
  * volume. Pure. Coefficient ~0.8 lb raises CYA ~10 ppm per 10k gal. Rounded to
  * the nearest 0.5 lb; 0 when target <= current (CYA is only removed by dilution).
+ *
+ * NOTE: superseded by cyaDoseOz for the live advice (owner uses a LIQUID
+ * stabilizer dosed in oz). Kept for reference / unit symmetry with saltDoseLbs.
  */
 export function cyaDoseLbs(currentPpm: number, targetPpm: number, gallons: number): number {
     if (targetPpm <= currentPpm) return 0;
     const lbs = (gallons / 10000) * ((targetPpm - currentPpm) / 10) * 0.8;
     return Math.round(lbs * 2) / 2;
+}
+
+/**
+ * Cyanuric acid (stabilizer) dose in FLUID OUNCES of the owner's liquid product,
+ * to raise current->target for the given volume. Pure. `ozPerPpmPer10kGal` is the
+ * product's strength — Leslie's Instant Conditioner Plus = 4 oz per 10k gal per
+ * 1 ppm. Rounded to the nearest 5 oz; 0 when target <= current.
+ */
+export function cyaDoseOz(
+    currentPpm: number, targetPpm: number, gallons: number, ozPerPpmPer10kGal: number,
+): number {
+    if (targetPpm <= currentPpm) return 0;
+    const oz = (gallons / 10000) * (targetPpm - currentPpm) * ozPerPpmPer10kGal;
+    return Math.round(oz / 5) * 5;
 }
 
 /** Single highest-priority foundational action. Extensible (salt is the only rung today). */

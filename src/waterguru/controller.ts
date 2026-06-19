@@ -17,7 +17,7 @@ import { Chlorinator } from '../chlorinator';
 import { WaterGuruClient, WgReading } from './client';
 import { computeTargetPct, ControlParams } from './control';
 import { evaluateRedFlags, RedFlagInput } from './redflag';
-import { nextBestAction, cyaDoseLbs } from './nextaction';
+import { nextBestAction, cyaDoseOz } from './nextaction';
 import { GenerationTracker } from './generation-tracker';
 import { ChlorineSensor } from './chlorinesensor';
 import { PhSensor } from './phsensor';
@@ -56,6 +56,8 @@ export interface ControllerConfig extends ControlParams {
     cyaCurrentPpm: number;
     /** CYA dose target (ppm) — conservative in-band target for the stabilizer dose. */
     cyaTargetPpm: number;
+    /** Liquid stabilizer strength (fl oz per 1 ppm CYA per 10k gal) — owner's product. */
+    stabilizerOzPerPpmPer10kGal: number;
     /** ntfy push config. Empty topic = disabled. */
     ntfyServer: string;
     ntfyTopic: string;
@@ -190,8 +192,13 @@ export class WaterGuruController {
             .map(p => {
                 const item: OutOfRangeParam = { name: p.name, value: p.value as number, unit: p.unit, band: p.band };
                 if (p.name === 'CYA' && (p.value as number) < p.band.min && this.cfg.poolGallons !== undefined) {
-                    const lbs = cyaDoseLbs(p.value as number, this.cfg.cyaTargetPpm, this.cfg.poolGallons);
-                    if (lbs > 0) item.advice = `add ~${lbs} lbs stabilizer`;
+                    const oz = cyaDoseOz(
+                        p.value as number,
+                        this.cfg.cyaTargetPpm,
+                        this.cfg.poolGallons,
+                        this.cfg.stabilizerOzPerPpmPer10kGal,
+                    );
+                    if (oz > 0) item.advice = `add ~${oz} oz stabilizer`;
                 }
                 return item;
             });
@@ -246,19 +253,23 @@ export class WaterGuruController {
             else this.sensors.alert?.clear();
         }
 
-        // ONE batched push per run (single 'chem' dedupe key) naming the
+        // ONE batched push per DAILY run (single 'chem' dedupe key) naming the
         // foundational action AND every out-of-range param — never spam.
-        // Best-effort: a notify failure must never break the run.
-        const note = buildChemNotification({
-            nbaActive: nba.active,
-            nbaMessage: nba.message,
-            outOfRange,
-        });
-        if (note) {
-            try {
-                await this.notifier?.maybeNotify('chem', note.title, note.body);
-            } catch (e) {
-                this.platform.log.warn(`ntfy push (chem) failed: ${(e as Error).message}`);
+        // Startup runs still refresh the HomeKit tiles above but send NO push;
+        // the notifier's ~20h window re-reminds each morning while work is pending
+        // but never twice in a day. Best-effort: a notify failure never breaks the run.
+        if (trigger === 'daily') {
+            const note = buildChemNotification({
+                nbaActive: nba.active,
+                nbaMessage: nba.message,
+                outOfRange,
+            });
+            if (note) {
+                try {
+                    await this.notifier?.maybeNotify('chem', note.title, note.body);
+                } catch (e) {
+                    this.platform.log.warn(`ntfy push (chem) failed: ${(e as Error).message}`);
+                }
             }
         }
 

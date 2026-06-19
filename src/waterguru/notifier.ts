@@ -12,22 +12,23 @@ export interface NotifyState {
 }
 
 /**
- * Notify only when the body CHANGES for a key, and not more than once per
- * minIntervalMs. Identical bodies are never re-notified.
+ * Time-window policy: notify when there is no prior send for the key, OR enough
+ * time has elapsed since the last send — REGARDLESS of whether the body changed.
+ * With a ~20h interval and a once-per-day (morning) caller, this re-reminds each
+ * morning while work is still pending, but never twice in the same day. The
+ * `body` is unused for the decision (kept in the signature for the recorded
+ * state and call-site symmetry).
  *
  *   - no prior entry for key            → true
- *   - body === prior.body               → false (never re-notify identical)
- *   - body changed, within interval     → false (rate-limited)
- *   - body changed, after interval      → true
+ *   - now - prior.sentMs >= interval    → true  (next morning)
+ *   - now - prior.sentMs <  interval    → false (already reminded today)
  */
 export function shouldNotify(
-    state: NotifyState, key: string, body: string, nowMs: number, minIntervalMs: number,
+    state: NotifyState, key: string, _body: string, nowMs: number, minIntervalMs: number,
 ): boolean {
     const prior = state[key];
     if (!prior) return true;
-    if (prior.body === body) return false;
-    if (nowMs - prior.sentMs < minIntervalMs) return false;
-    return true;
+    return nowMs - prior.sentMs >= minIntervalMs;
 }
 
 /** Return a NEW state with the key's last-sent body/time updated. Pure. */
@@ -40,8 +41,12 @@ export interface NotifierConfig {
     ntfyTopic?: string;
 }
 
-/** Re-notify the same key only once per hour (when the body changes). */
-const MIN_INTERVAL_MS = 60 * 60 * 1000;
+/**
+ * Re-notify a key at most once per ~20h. With the daily 8am caller this means
+ * one reminder per morning while work is pending — the gap is short enough that
+ * a slightly-early run never double-fires, long enough to span a day.
+ */
+const MIN_INTERVAL_MS = 20 * 60 * 60 * 1000;
 
 export class Notifier {
     private state: NotifyState = {};

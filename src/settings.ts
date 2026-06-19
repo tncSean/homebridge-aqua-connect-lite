@@ -20,7 +20,7 @@ export const AC_API_SETTINGS = {
 /** Chlorine controller defaults (spec §Configuration). */
 export const CHLORINE_CONTROLLER_DEFAULTS = {
     ENABLED: true,
-    RUN_AT: '09:30',
+    RUN_AT: '08:00',
     MIN_PCT: 2,
     MAX_PCT: 20,
     MAX_STEP: 3,
@@ -46,6 +46,9 @@ export const CHLORINE_CONTROLLER_DEFAULTS = {
     CYA_CURRENT_PPM: 0,
     // CYA dose target (ppm) — conservative in-band target; CYA only drops by dilution.
     CYA_TARGET_PPM: 40,
+    // Liquid stabilizer strength (fl oz per 1 ppm CYA per 10k gal).
+    // Leslie's Instant Conditioner Plus = 4 oz/ppm/10k gal.
+    STABILIZER_OZ_PER_PPM_PER_10K_GAL: 4,
     // ntfy push. Empty topic = disabled.
     NTFY_SERVER: 'https://ntfy.sh',
     NTFY_TOPIC: '',
