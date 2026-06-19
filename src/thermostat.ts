@@ -14,15 +14,21 @@ const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms))
  * Pool Heater surfaced as HomeKit Thermostat.
  *
  * Control model: Pro Logic has no dedicated heater button — heater is menu-
- * driven. We drive the panel's *wired* keypad bus via W610 RS-485 TX
- * (AquaLogicClient.sendWiredKey), which was empirically proven 2026-04-18
- * to reach the panel (earlier conclusion "W610 TX doesn't reach panel" was
- * wrong — see memory: heater_state.md).
+ * driven. We drive the panel's *wired* keypad bus via W610 RS-485 TX using
+ * BLANKET BURSTS (AquaLogicClient.sendWiredKeyBurst) — the proven-reliable
+ * transport (2026-06): it sprays the encoded press frame every ~8ms for
+ * ~200ms so at least one frame lands inside the panel's ~50ms key-accept
+ * window despite WiFi jitter. This is the SAME primitive the chlorinator
+ * uses (chlorinator.ts), which landed reliably live. The old single/hold-
+ * pattern presses (sendWiredKey/sendWiredKeyOnce) only reached the panel
+ * ~15-30% of the time — that flakiness is what this rewrite fixes.
  *
- * The RS-485 bus is noisy; a single press frame lands with ~5-30% probability
- * due to collisions with the panel's master traffic. We compensate with
- * retry loops: each key is re-sent up to N times, and we verify every step
- * via display-text changes parsed into PoolState.heaterSetpointF.
+ * Each burst registers exactly ONE keypress edge (multiple identical "still
+ * held" frames inside one burst look like a single physical press, not a
+ * panel auto-repeat), so one burst = one increment. We verify every step via
+ * display-text changes parsed into PoolState.heaterSetpointF, and retry
+ * generously because the per-burst landing rate during the in-menu blink is
+ * still only ~25-35%.
  *
  * Nav sequence:
  *   MENU × until "Settings Menu"     → land on top-level Settings
@@ -53,9 +59,16 @@ export class Thermostat {
     private static readonly MAX_F = 104;
     private static readonly DEFAULT_ON_F = 80;
 
-    // RS-485 retry/timing constants — tuned from empirical spike 2026-04-18.
+    // RS-485 retry/timing constants — tuned from empirical spike 2026-04-18,
+    // transport switched to blanket bursts 2026-06 (mirrors chlorinator.ts).
+    /** Burst duration per keypress. EMPIRICAL (chlorinator, verified live
+     *  2026-06): 200ms reliably registers exactly ONE keypress edge (one
+     *  increment). 300ms tripped the panel's auto-repeat and multi-stepped, so
+     *  200ms is the ceiling. Per-burst hit rate during the noisy in-menu blink
+     *  is ~25-35%, so the nav/step loops RETRY generously. */
+    private static readonly BURST_MS = 200;
     /** Per-key retry budget for navigation (MENU, RIGHT, PLUS-enter). Generous:
-     *  with ~15% per-press hit rate, cycling through 7 top-level menus may
+     *  with ~25-35% per-burst hit rate, cycling through 7 top-level menus may
      *  need 80+ retries to land on Settings. */
     private static readonly NAV_RETRIES = 120;
     /** Per-key retry budget for setpoint stepping (PLUS/MINUS within submenu). */
@@ -242,25 +255,19 @@ export class Thermostat {
 
     // --- Core wired-key send wrapper ----------------------------------------
 
-    /** Send a HOLD-PATTERN press (5 frames + release). Use for nav (MENU/RIGHT/PLUS-enter)
-     *  where higher per-attempt reliability matters more than per-press precision. */
+    /** Send ONE keypress as a blanket BURST (sprays the press frame every ~8ms
+     *  for BURST_MS, then releases) — the proven-reliable transport shared with
+     *  chlorinator.ts. Used for BOTH nav (MENU/RIGHT/PLUS-enter) and discrete
+     *  setpoint stepping (PLUS/MINUS): one burst = one registered keypress edge,
+     *  so it never overshoots, and the ~8ms spray crosses the bus despite WiFi
+     *  jitter where the old single/hold-pattern presses missed ~70-85% of the
+     *  time. Errors are swallowed — the display readback is the real success
+     *  check, and the caller retries. */
     private async pressOnce(key: KeyValue, name: string): Promise<void> {
         try {
-            await this.client.sendWiredKey(key);
+            await this.client.sendWiredKeyBurst(key, Thermostat.BURST_MS);
         } catch (e) {
-            this.platform.log.debug(`${name} send failed: ${(e as Error).message}`);
-        }
-    }
-
-    /** Send a SINGLE press+release (no hold). Use for setpoint stepping where
-     *  the panel can auto-repeat under hold-pattern, causing overshoot. Caller
-     *  watches display and fires next press immediately on display change. */
-    // @ts-ignore unused for now
-    private async pressSingle(key: KeyValue, name: string): Promise<void> {
-        try {
-            await this.client.sendWiredKeyOnce(key);
-        } catch (e) {
-            this.platform.log.debug(`${name} send failed: ${(e as Error).message}`);
+            this.platform.log.debug(`${name} burst send failed: ${(e as Error).message}`);
         }
     }
 
@@ -434,18 +441,15 @@ export class Thermostat {
         }
         this.platform.log.info(`${this.accessory.displayName} stepping ${cur}°F → Off`);
 
-        // Hold MINUS, release when setpoint hits 65 (one below is Off), then
-        // send one discrete MINUS to cross into Off. Panel auto-wraps 65→Off.
-        // Large delta (e.g. 104→65 = 39 steps) benefits most from hold.
+        // Discrete MINUS bursts all the way down to 65, then one more to cross
+        // into Off (panel auto-wraps 65→Off). One burst = one step; we read
+        // back each press and retry on misses. (Previously the bulk sweep used
+        // a continuous wired hold, but that primitive was unreliable AND this
+        // firmware's wired decoder ignores held frames, so bursts are both more
+        // reliable and the only thing that actually steps. STEP_RETRIES is
+        // per-stall, not per-sweep, so a 104→65 run of 39 steps is fine: the
+        // counter resets on every successful step.)
         let seen: 'off' | number = cur;
-        if (typeof seen === 'number' && seen > Thermostat.MIN_F) {
-            seen = await this.stepWithHold(
-                Key.MINUS, 'MINUS',
-                seen, Thermostat.MIN_F,
-                (sp, target) => typeof sp === 'number' && sp <= target,
-            );
-        }
-        // Discrete stepping for final Off crossing (panel: MINUS past 65 → Off)
         let stuck = 0;
         while (seen !== 'off' && stuck < Thermostat.STEP_RETRIES) {
             const before: 'off' | number = seen;
@@ -487,23 +491,13 @@ export class Thermostat {
             this.platform.log.info(`${this.accessory.displayName} enabled at ${seen}°F`);
         }
 
-        // Large delta → hold stepping; panel's internal key-repeat auto-scrolls
-        // at ~150-200ms/step once its ~500ms initial-delay fires. Release when
-        // we see the target (or slightly past it) on the bus.
-        if (typeof seen === 'number' && Math.abs(target - seen) >= Thermostat.HOLD_MIN_DELTA) {
-            const delta = target - seen;
-            const key = delta > 0 ? Key.PLUS : Key.MINUS;
-            const name = delta > 0 ? 'PLUS' : 'MINUS';
-            seen = await this.stepWithHold(
-                key, name, seen, target,
-                (sp, tgt) => typeof sp === 'number' && (delta > 0 ? sp >= tgt : sp <= tgt),
-            );
-        }
-
-        // Fine tuning: discrete hold-pattern presses for the last 0-2°F.
-        // Corrects any overshoot from the hold release, and handles the case
-        // where hold did nothing (panel didn't auto-repeat) and we're still
-        // at the starting setpoint.
+        // Step to the target with discrete MINUS/PLUS bursts — one burst per
+        // step, reading back each press and retrying on misses. (This firmware's
+        // wired decoder ignores held frames, so a continuous hold can't
+        // auto-scroll; bursts are the only thing that steps, and one burst =
+        // one edge so we never overshoot. STEP_RETRIES is a per-stall cap that
+        // resets on every successful step, so a large delta like 65→104 = 39
+        // steps runs fine.)
         let stuck = 0;
         while (seen !== target && stuck < Thermostat.STEP_RETRIES) {
             const delta = target - (seen as number);
@@ -522,88 +516,6 @@ export class Thermostat {
         }
         if (seen !== target) throw new Error(`couldn't reach ${target}°F, stuck at ${seen}`);
         this.platform.log.info(`${this.accessory.displayName} ✅ setpoint=${target}°F`);
-    }
-
-    /** Minimum delta (°F) to attempt hold-until-target before discrete stepping.
-     *
-     *  EMPIRICAL (v3.2.13 live test 2026-04-18): holding wired-key did NOT
-     *  auto-repeat the setpoint — 30 press frames over 3s produced zero
-     *  steps. This firmware's wired-key decoder only sees the first press
-     *  edge; subsequent "held" frames are ignored. Kept as best-effort
-     *  experiment: the stall detector falls back to discrete within ~1.5s
-     *  when the panel doesn't move. Set to Infinity to disable entirely. */
-    private static readonly HOLD_MIN_DELTA = Number.POSITIVE_INFINITY;
-    /** Max time to hold before assuming the panel isn't auto-repeating and
-     *  falling back to discrete stepping. */
-    private static readonly HOLD_MAX_MS = 20_000;
-    /** Max time without observing any setpoint change while holding. Short
-     *  because we already know wired-hold is a no-op on this firmware — fail
-     *  fast so discrete stepping takes over. */
-    private static readonly HOLD_STALL_MS = 1_500;
-
-    /**
-     * Hold `key` continuously, watching heaterSetpointF. Release when
-     * predicate(sp, target) is true (at or past target) or on stall/timeout.
-     * Returns the final observed setpoint.
-     */
-    private async stepWithHold(
-        key: KeyValue,
-        name: string,
-        start: number,
-        target: number,
-        reached: (sp: 'off' | number | undefined, target: number) => boolean,
-    ): Promise<'off' | number> {
-        this.platform.log.info(
-            `${this.accessory.displayName} hold ${name} from ${start}°F toward ${target}°F`,
-        );
-
-        let seen: 'off' | number = start;
-        let lastChangeAt = Date.now();
-        const deadline = Date.now() + Thermostat.HOLD_MAX_MS;
-
-        const onChange = (k: keyof PoolState) => {
-            if (k !== 'heaterSetpointF') return;
-            const sp = this.client.state.current.heaterSetpointF;
-            if (sp === 'off' || typeof sp === 'number') {
-                if (sp !== seen) {
-                    seen = sp;
-                    lastChangeAt = Date.now();
-                    this.platform.log.debug(
-                        `${this.accessory.displayName} hold ${name} sp=${sp}`,
-                    );
-                }
-            }
-        };
-        this.client.state.on('change', onChange);
-
-        try {
-            await this.client.startHold(key);
-
-            while (Date.now() < deadline) {
-                if (reached(seen, target)) break;
-                if (Date.now() - lastChangeAt > Thermostat.HOLD_STALL_MS) {
-                    this.platform.log.warn(
-                        `${this.accessory.displayName} hold ${name} stalled at ${seen}°F — releasing`,
-                    );
-                    break;
-                }
-                await sleep(50);
-            }
-        } finally {
-            this.client.state.off('change', onChange);
-            try {
-                await this.client.stopHold();
-            } catch (e) {
-                this.platform.log.warn(
-                    `${this.accessory.displayName} hold ${name} release failed: ${(e as Error).message}`,
-                );
-            }
-        }
-
-        this.platform.log.info(
-            `${this.accessory.displayName} hold ${name} released at ${seen}°F (target ${target})`,
-        );
-        return seen;
     }
 }
 

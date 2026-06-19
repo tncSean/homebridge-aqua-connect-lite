@@ -1,7 +1,7 @@
 {
   "displayName": "Aqua Connect Lite",
   "name": "homebridge-aqua-connect-lite",
-  "version": "3.2.14",
+  "version": "3.5.0",
   "description": "Control your Hayward pool controller via HomeKit. v3 adds RS-485 thermostat, chlorinator, filter pump, super-chlorinate, and water/air temperature sensors via a USR-W610 bus bridge.",
   "license": "Apache-2.0",
   "repository": {
@@ -26,6 +26,8 @@
     "lint": "eslint src/**/*.ts --max-warnings=0",
     "watch": "npm run build && npm link && nodemon",
     "build": "rimraf ./dist && tsc",
+    "test": "ts-node --files -e \"require('glob').sync('src/**/*.test.ts').forEach((f:string)=>require('./'+f))\"",
+    "typecheck:test": "tsc -p tsconfig.test.json",
     "prepublishOnly": "npm run lint && npm run build",
     "clean": "rimraf ./dist"
   },
@@ -42,14 +44,19 @@
     "hayward pool"
   ],
   "dependencies": {
+    "@aws-sdk/client-cognito-identity": "^3.1072.0",
+    "amazon-cognito-identity-js": "^6.3.16",
+    "aws4": "^1.13.2",
     "axios": "^1.8.4",
     "node-html-parser": "^7.0.1"
   },
   "devDependencies": {
+    "@types/aws4": "^1.11.6",
     "@types/node": "^22.13.10",
     "@typescript-eslint/eslint-plugin": "^8.26.1",
     "@typescript-eslint/parser": "^8.26.1",
     "eslint": "^9.22.0",
+    "glob": "^11.1.0",
     "homebridge": "^1.8.5",
     "nodemon": "^3.1.9",
     "rimraf": "^6.0.1",

@@ -17,10 +17,34 @@ export const AC_API_SETTINGS = {
     UPDATE_LOCAL_SERVER_POST_BODY: 'Update Local Server&'
 };
 
+/** Chlorine controller defaults (spec §Configuration). */
+export const CHLORINE_CONTROLLER_DEFAULTS = {
+    ENABLED: true,
+    RUN_AT: '09:30',
+    MIN_PCT: 2,
+    MAX_PCT: 20,
+    MAX_STEP: 3,
+    GAIN: 2,
+    COMPUTE_ONLY: false,
+};
+
 /** Default AquaLogic (W610 bus bridge) connection settings */
 export const AQUALOGIC_DEFAULTS = {
-    HOST: '192.168.1.70',
+    /** Static fallback IP, used only when MAC auto-discovery finds nothing. */
+    HOST: '192.168.1.73',
     PORT: 8899,
+    /**
+     * Stable identity of the pool W610 for auto-discovery (device is on DHCP;
+     * a second PUSR device shares the LAN, so we MUST match by MAC). Two MACs
+     * because the W610 reports different values on different channels:
+     *
+     *   L2_MAC (...59) — the Ethernet/ARP MAC. Used by ARP-scan discovery, the
+     *     PRIMARY method on the Homebridge host (unicast; works from CT 131).
+     *   MAC (...58)    — the MAC the PUSR UDP-48899 protocol reports. Used by
+     *     the SECONDARY broadcast-discovery fallback.
+     */
+    L2_MAC: 'D4:AD:20:DF:8D:59',
+    MAC: 'D4:AD:20:DF:8D:58',
 };
 
 /**
@@ -36,6 +60,9 @@ export const ACCESSORY_TYPE = {
     DIMMER: 'dimmer' as const,
     FAN: 'fan' as const,
     TEMPSENSOR: 'tempsensor' as const,
+    CHLORINE_SENSOR: 'chlorinesensor' as const,
+    PH_SENSOR: 'phsensor' as const,
+    POOL_ALERT: 'poolalert' as const,
 };
 
 export type AccessoryType = typeof ACCESSORY_TYPE[keyof typeof ACCESSORY_TYPE];
@@ -152,5 +179,21 @@ export const ACCESSORIES: AccessoryConfig[] = [
         TYPE: ACCESSORY_TYPE.TEMPSENSOR,
         TRANSPORT: 'aqualogic',
         FIELD: 'airTempF',
+    } as AquaLogicAccessoryConfig,
+    // --- Water Guru sensors (v3.5; only instantiated when WG creds present) ---
+    {
+        NAME: 'Free Chlorine',
+        TYPE: ACCESSORY_TYPE.CHLORINE_SENSOR,
+        TRANSPORT: 'aqualogic',
+    } as AquaLogicAccessoryConfig,
+    {
+        NAME: 'pH',
+        TYPE: ACCESSORY_TYPE.PH_SENSOR,
+        TRANSPORT: 'aqualogic',
+    } as AquaLogicAccessoryConfig,
+    {
+        NAME: 'Pool Alert',
+        TYPE: ACCESSORY_TYPE.POOL_ALERT,
+        TRANSPORT: 'aqualogic',
     } as AquaLogicAccessoryConfig,
 ];

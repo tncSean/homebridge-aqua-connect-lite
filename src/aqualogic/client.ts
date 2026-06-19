@@ -11,13 +11,26 @@
  */
 import { EventEmitter } from 'events';
 import * as net from 'net';
+import { discoverIpByArp, discoverIpByMac } from './discovery';
 import { encodeFrame, FrameExtractor, FrameType, isFrameType } from './frame';
 import { Key, KeyValue } from './keys';
 import { PoolStateStore } from './state';
 
 export interface AquaLogicClientOptions {
+    /** Static fallback host — also the initial IP and the /24 to ARP-scan. */
     host: string;
     port: number;
+    /**
+     * Layer-2 / Ethernet (ARP) MAC of the target W610. When set, a failed
+     * connection triggers an ARP-scan of the host's /24 to relocate the device
+     * by this MAC — the PRIMARY, unicast discovery method. W610: ...59.
+     */
+    l2Mac?: string;
+    /**
+     * PUSR-protocol MAC (UDP 48899). Used as a SECONDARY broadcast-discovery
+     * fallback when the ARP scan finds nothing. W610: ...58.
+     */
+    mac?: string;
     /** Optional logger — supply the Homebridge log; falls back to console. */
     log?: { debug: (m: string) => void; info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void };
 }
@@ -32,11 +45,19 @@ export class AquaLogicClient extends EventEmitter {
     private connected = false;
     private stopping = false;
     private reconnectTimer: NodeJS.Timeout | null = null;
+    /** Currently-believed device IP. Starts at the static host; updated when
+     *  discovery relocates the device after a failed connect. */
+    private lastKnownIp: string;
+    /** True once the in-flight socket has actually established a connection —
+     *  lets the close handler tell "couldn't reach the IP" (→ rediscover) from
+     *  "was connected, link dropped" (→ just reconnect to the same IP). */
+    private attemptConnected = false;
 
     private readonly log: NonNullable<AquaLogicClientOptions['log']>;
 
     constructor(private readonly opts: AquaLogicClientOptions) {
         super();
+        this.lastKnownIp = opts.host;
         this.log = opts.log ?? {
             debug: m => console.debug(`[aqualogic] ${m}`),
             info: m => console.log(`[aqualogic] ${m}`),
@@ -151,6 +172,55 @@ export class AquaLogicClient extends EventEmitter {
             throw new Error('disconnected between single press and release');
         }
         await this.queueWire(releasePayload, 'wired release once (gated)');
+    }
+
+    /**
+     * Send a WIRED key press as a BLANKET BURST: spray the encoded press frame
+     * repeatedly (every ~BURST_SPACING_MS) for `burstMs`, then send a single
+     * release. This is the PROVEN-reliable transport (2026-06): a lone
+     * KEEP_ALIVE-gated frame frequently misses the panel's ~50ms key-accept
+     * window under WiFi jitter, so we blanket the wire to guarantee at least
+     * one frame lands inside that window.
+     *
+     * IMPORTANT — single-press semantics: the burst must stay UNDER the panel's
+     * key-auto-repeat threshold (~500ms physical hold before it starts
+     * scrolling). With the default 200ms the panel registers exactly ONE
+     * keypress edge (multiple identical "still held" press frames look like a
+     * single physical press, not a repeat), so one burst = one increment. Tune
+     * down if you see overshoot (multi-increment), up if presses miss.
+     *
+     * Unlike queueWire/sendWiredKey, this is NOT KEEP_ALIVE-gated — gating to a
+     * single quiet window is exactly the failure mode we're avoiding. We rely
+     * on NODELAY + sheer frame count to cross the bus. Writes go out best-effort;
+     * write errors are swallowed (the panel readback is the real success check).
+     */
+    private static readonly BURST_SPACING_MS = 8;
+    private static readonly DEFAULT_BURST_MS = 200;
+    async sendWiredKeyBurst(key: KeyValue, burstMs = AquaLogicClient.DEFAULT_BURST_MS): Promise<void> {
+        const key16 = key & 0xffff;
+        if (key16 === 0) {
+            throw new Error(`key 0x${key.toString(16)} has no wired-bus representation`);
+        }
+        if (!this.socket || !this.connected) {
+            throw new Error('AquaLogic client not connected');
+        }
+        const pressWire = encodeFrame(this.buildWiredKeyPayload(key16, key16));
+        const releaseWire = encodeFrame(this.buildWiredKeyPayload(key16, 0));
+        const deadline = Date.now() + burstMs;
+        let frames = 0;
+        while (Date.now() < deadline) {
+            if (!this.socket || !this.connected) {
+                throw new Error('disconnected during wired burst');
+            }
+            this.socket.write(pressWire);
+            frames++;
+            await sleep(AquaLogicClient.BURST_SPACING_MS);
+        }
+        // Single clean release (un-gated) — closes the keypress edge.
+        if (this.socket && this.connected) {
+            this.socket.write(releaseWire);
+        }
+        this.log.debug(`wired burst key=0x${key16.toString(16)} frames=${frames} over ${burstMs}ms`);
     }
 
     async sendWiredKey(key: KeyValue): Promise<void> {
@@ -327,14 +397,71 @@ export class AquaLogicClient extends EventEmitter {
 
     // --- connection management ------------------------------------------------
 
+    /**
+     * Relocate the device by MAC after a failed connection. Tries ARP-scan on
+     * the L2 MAC first (PRIMARY — unicast, works from the wired Homebridge
+     * host), then PUSR UDP-48899 broadcast on the protocol MAC (SECONDARY).
+     *
+     * On success, updates lastKnownIp and logs `W610 relocated via <method> to
+     * <ip>`. On no-match (or no MACs configured) leaves lastKnownIp untouched
+     * so the next attempt retries the static fallback. Best-effort — both
+     * discovery calls swallow their own errors and resolve null.
+     */
+    private async rediscover(): Promise<void> {
+        const { l2Mac, mac, host } = this.opts;
+
+        if (l2Mac) {
+            const viaArp = await discoverIpByArp(l2Mac, { subnetIp: host });
+            if (viaArp) {
+                if (viaArp !== this.lastKnownIp) {
+                    this.log.info(`W610 relocated via ARP to ${viaArp} (MAC ${l2Mac})`);
+                }
+                this.lastKnownIp = viaArp;
+                return;
+            }
+        }
+
+        if (mac) {
+            const viaUdp = await discoverIpByMac(mac);
+            if (viaUdp) {
+                if (viaUdp !== this.lastKnownIp) {
+                    this.log.info(`W610 relocated via UDP to ${viaUdp} (MAC ${mac})`);
+                }
+                this.lastKnownIp = viaUdp;
+                return;
+            }
+        }
+
+        if (l2Mac || mac) {
+            this.log.warn(`W610 discovery found nothing — falling back to ${host}`);
+            this.lastKnownIp = host;
+        }
+    }
+
+    /**
+     * Open a TCP socket to lastKnownIp. No discovery up front — the happy path
+     * (stable IP) connects immediately. Discovery only runs in the close
+     * handler after a connect that never succeeded (see attemptConnected).
+     */
     private connect(): void {
-        const { host, port } = this.opts;
+        if (this.stopping || this.socket) return;
+        const host = this.lastKnownIp;
+        const { port } = this.opts;
+        this.attemptConnected = false;
         this.log.info(`connecting to ${host}:${port}...`);
         const sock = net.createConnection({ host, port });
         this.socket = sock;
 
         sock.on('connect', () => {
+            // Disable Nagle. The wired-key blanket-burst relies on each ~8ms
+            // press frame hitting the wire immediately; Nagle would coalesce
+            // them into one TCP segment and defeat the spray-across-jitter
+            // strategy that lands a press inside the panel's ~50ms accept
+            // window (proven 2026-06 — single gated frames miss under WiFi
+            // jitter, blanketing lands them).
+            sock.setNoDelay(true);
             this.connected = true;
+            this.attemptConnected = true;
             this.reconnectDelay = 500;
             this.log.info(`connected to ${host}:${port}`);
             this.emit('connected');
@@ -353,6 +480,7 @@ export class AquaLogicClient extends EventEmitter {
         });
 
         sock.on('close', () => {
+            const everConnected = this.attemptConnected;
             this.connected = false;
             this.socket = null;
             // Kill any active hold — can't refresh over a dead socket, and a
@@ -370,10 +498,35 @@ export class AquaLogicClient extends EventEmitter {
             this.emit('disconnected');
             if (this.stopping) return;
             const delay = Math.min(this.reconnectDelay, this.maxReconnectDelay);
-            this.log.warn(`disconnected — reconnecting in ${delay}ms`);
-            this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; this.connect(); }, delay);
             this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+
+            // If this attempt NEVER connected, the IP may have moved (DHCP) —
+            // run discovery before retrying so a relocated device is found.
+            // If it had connected and just dropped, skip discovery and retry
+            // the same (known-good) IP immediately on backoff.
+            if (!everConnected) {
+                this.log.warn(`connect to ${this.lastKnownIp} failed — scanning for W610 by MAC`);
+                this.scheduleReconnect(delay, true);
+            } else {
+                this.log.warn(`disconnected — reconnecting in ${delay}ms`);
+                this.scheduleReconnect(delay, false);
+            }
         });
+    }
+
+    private scheduleReconnect(delay: number, rediscoverFirst: boolean): void {
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            if (this.stopping || this.socket) return;
+            if (rediscoverFirst) {
+                void this.rediscover().then(() => {
+                    if (this.stopping || this.socket) return;
+                    this.connect();
+                });
+            } else {
+                this.connect();
+            }
+        }, delay);
     }
 
     /**

@@ -1,5 +1,5 @@
 import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
-import { PLATFORM_NAME, PLUGIN_NAME, ACCESSORY_TYPE, ACCESSORIES, AQUALOGIC_DEFAULTS, AccessoryConfig } from './settings';
+import { PLATFORM_NAME, PLUGIN_NAME, ACCESSORY_TYPE, ACCESSORIES, AQUALOGIC_DEFAULTS, CHLORINE_CONTROLLER_DEFAULTS, AccessoryConfig } from './settings';
 import { Light } from './light';
 import { Switch } from './switch';
 import { TempSensor } from './tempsensor';
@@ -8,6 +8,11 @@ import { SuperChlor } from './superchlor';
 import { Chlorinator } from './chlorinator';
 import { Thermostat } from './thermostat';
 import { AquaLogicClient } from './aqualogic/client';
+import { ChlorineSensor } from './waterguru/chlorinesensor';
+import { PhSensor } from './waterguru/phsensor';
+import { PoolAlert } from './waterguru/poolalert';
+import { WaterGuruClient } from './waterguru/client';
+import { WaterGuruController, ControllerConfig } from './waterguru/controller';
 
 /**
  * AquaConnectLitePlatform
@@ -25,6 +30,12 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
 
     /** Shared RS-485 client, instantiated only when an AquaLogic accessory is enabled. */
     private aquaLogicClient: AquaLogicClient | null = null;
+
+    private wgController: WaterGuruController | null = null;
+    private chlorineSensor: ChlorineSensor | null = null;
+    private phSensor: PhSensor | null = null;
+    private poolAlert: PoolAlert | null = null;
+    private chlorinatorAccessory: Chlorinator | null = null;
 
     constructor(
         public readonly log: Logger,
@@ -55,6 +66,7 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
         });
 
         this.api.on('shutdown', () => {
+            if (this.wgController) this.wgController.stop();
             if (this.aquaLogicClient) {
                 this.log.debug('Shutdown — stopping AquaLogic client');
                 this.aquaLogicClient.stop();
@@ -89,9 +101,19 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
             ? rawExcluded.filter((x): x is string => typeof x === 'string')
             : [];
 
+        const wgEmail = typeof this.config.waterguru_email === 'string' ? this.config.waterguru_email.trim() : '';
+        const wgPassword = typeof this.config.waterguru_password === 'string' ? this.config.waterguru_password : '';
+        const wgEnabled = wgEmail.length > 0 && wgPassword.length > 0;
+        if (!wgEnabled) {
+            for (const n of ['Free Chlorine', 'pH', 'Pool Alert']) {
+                if (!excluded.includes(n)) excluded.push(n);
+            }
+            this.log.info('Water Guru credentials absent — chlorine auto-tuner disabled (plugin behaves as before).');
+        }
+
         const hasAqualogic = ACCESSORIES.some(
             a => a.TRANSPORT === 'aqualogic' && !excluded.includes(a.NAME),
-        );
+        ) || wgEnabled;
         if (hasAqualogic) {
             const rawHost = this.config.w610_ip;
             const host = typeof rawHost === 'string' && rawHost.length > 0
@@ -111,8 +133,23 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
             if (typeof rawPort === 'number' && (rawPort < 1 || rawPort > 65535)) {
                 this.log.warn(`w610_port ${rawPort} out of range — using default ${AQUALOGIC_DEFAULTS.PORT}`);
             }
-            this.log.info(`AquaLogic (W610): ${host}:${port}`);
-            this.aquaLogicClient = new AquaLogicClient({ host, port, log: this.log });
+            // The W610 is on DHCP and a second PUSR device shares the LAN, so we
+            // identify it by MAC: when a connect to the last-known IP fails, the
+            // client relocates the device — ARP-scan by its Ethernet MAC first
+            // (works from the wired Homebridge host), then PUSR UDP-48899 by its
+            // protocol MAC. Both config overrides are OPTIONAL (sane defaults).
+            const rawL2Mac = this.config.w610_l2_mac;
+            const l2Mac = typeof rawL2Mac === 'string' && rawL2Mac.length > 0
+                ? rawL2Mac
+                : AQUALOGIC_DEFAULTS.L2_MAC;
+            const rawMac = this.config.w610_mac;
+            const mac = typeof rawMac === 'string' && rawMac.length > 0
+                ? rawMac
+                : AQUALOGIC_DEFAULTS.MAC;
+            this.log.info(
+                `AquaLogic (W610): ${host}:${port} (auto-relocate by ARP MAC ${l2Mac} / UDP MAC ${mac})`,
+            );
+            this.aquaLogicClient = new AquaLogicClient({ host, port, l2Mac, mac, log: this.log });
             this.aquaLogicClient.start();
         }
 
@@ -154,6 +191,30 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
 
         this.log.debug('---------------------------');
         this.log.debug('Accessory discovery complete');
+
+        if (wgEnabled && this.aquaLogicClient) {
+            const raw = (this.config.chlorine_controller ?? {}) as Record<string, unknown>;
+            const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+            const cfg: ControllerConfig = {
+                enabled: raw.enabled !== false && CHLORINE_CONTROLLER_DEFAULTS.ENABLED,
+                runAt: typeof raw.run_at === 'string' ? raw.run_at : CHLORINE_CONTROLLER_DEFAULTS.RUN_AT,
+                minPct: num(raw.min_pct, CHLORINE_CONTROLLER_DEFAULTS.MIN_PCT),
+                maxPct: num(raw.max_pct, CHLORINE_CONTROLLER_DEFAULTS.MAX_PCT),
+                maxStep: num(raw.max_step, CHLORINE_CONTROLLER_DEFAULTS.MAX_STEP),
+                gain: num(raw.gain, CHLORINE_CONTROLLER_DEFAULTS.GAIN),
+                computeOnly: raw.compute_only === true || CHLORINE_CONTROLLER_DEFAULTS.COMPUTE_ONLY,
+            };
+            if (cfg.enabled) {
+                const wgClient = new WaterGuruClient(wgEmail, wgPassword, this.log);
+                this.wgController = new WaterGuruController(
+                    this, wgClient, this.aquaLogicClient, this.chlorinatorAccessory,
+                    { chlorine: this.chlorineSensor ?? undefined, ph: this.phSensor ?? undefined, alert: this.poolAlert ?? undefined },
+                    cfg,
+                );
+                this.wgController.start();
+                this.log.info(`Chlorine auto-tuner started (run_at ${cfg.runAt}, compute_only=${cfg.computeOnly}, max ${cfg.maxPct}%).`);
+            }
+        }
     }
 
     /**
@@ -179,7 +240,16 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
                 return;
             case ACCESSORY_TYPE.DIMMER:
                 this.requireClient(cfg.NAME);
-                new Chlorinator(this, platformAccessory, this.aquaLogicClient!);
+                this.chlorinatorAccessory = new Chlorinator(this, platformAccessory, this.aquaLogicClient!);
+                return;
+            case ACCESSORY_TYPE.CHLORINE_SENSOR:
+                this.chlorineSensor = new ChlorineSensor(this, platformAccessory);
+                return;
+            case ACCESSORY_TYPE.PH_SENSOR:
+                this.phSensor = new PhSensor(this, platformAccessory);
+                return;
+            case ACCESSORY_TYPE.POOL_ALERT:
+                this.poolAlert = new PoolAlert(this, platformAccessory);
                 return;
             case ACCESSORY_TYPE.FAN:
                 this.requireClient(cfg.NAME);

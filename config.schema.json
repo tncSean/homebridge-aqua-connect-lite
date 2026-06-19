@@ -13,10 +13,20 @@
         "description": "IP address of your Aqua Connect Home Network device (e.g., 192.168.1.65)"
       },
       "w610_ip": {
-        "title": "W610 RS-485 Bridge IP",
+        "title": "W610 RS-485 Bridge IP (static fallback)",
         "type": "string",
-        "default": "192.168.1.70",
-        "description": "IP of the USR-W610 bus bridge. Used by the Thermostat, Chlorinator, Filter Pump, Super Chlorinate switch, and temperature sensors. Leave blank to disable AquaLogic accessories."
+        "default": "192.168.1.73",
+        "description": "Static fallback IP of the USR-W610 bus bridge, used only when MAC auto-discovery finds nothing. The plugin normally discovers the W610's current DHCP IP by MAC on every connect. Used by the Thermostat, Chlorinator, Filter Pump, Super Chlorinate switch, and temperature sensors. Leave blank to disable AquaLogic accessories."
+      },
+      "w610_l2_mac": {
+        "title": "W610 Ethernet (ARP) MAC (optional)",
+        "type": "string",
+        "description": "Layer-2 / Ethernet MAC of the pool USR-W610. PRIMARY auto-discovery method: when a connection fails, the plugin ARP-scans the local subnet and relocates the device by this MAC (works from a wired Homebridge host). Optional — defaults to the known pool device MAC. Any common format accepted, e.g. D4:AD:20:DF:8D:59. Note: usually one greater than the UDP/PUSR MAC."
+      },
+      "w610_mac": {
+        "title": "W610 PUSR/UDP MAC (optional)",
+        "type": "string",
+        "description": "PUSR-protocol MAC of the pool USR-W610, as reported on UDP 48899. SECONDARY auto-discovery fallback (broadcast). Optional — defaults to the known pool device MAC. Any common format accepted, e.g. D4:AD:20:DF:8D:58."
       },
       "w610_port": {
         "title": "W610 TCP Port",
@@ -25,6 +35,30 @@
         "minimum": 1,
         "maximum": 65535,
         "description": "TCP port on the W610 for the RS-485 passthrough. Default: 8899."
+      },
+      "waterguru_email": {
+        "title": "Water Guru Email",
+        "type": "string",
+        "description": "Water Guru account email. Required to enable the morning chlorine auto-tuner and FC/pH tiles. Leave blank to disable all Water Guru features."
+      },
+      "waterguru_password": {
+        "title": "Water Guru Password",
+        "type": "string",
+        "description": "Water Guru account password. Stored in config.json on CT 131 (same as existing creds)."
+      },
+      "chlorine_controller": {
+        "title": "Chlorine Auto-Tuner",
+        "type": "object",
+        "properties": {
+          "enabled":      { "title": "Enabled", "type": "boolean", "default": true },
+          "compute_only": { "title": "Dry run (compute only, no writes)", "type": "boolean", "default": false,
+                            "description": "When on, logs the proposed chlorinator change each morning but does NOT drive the panel. Use to validate before enabling writes." },
+          "run_at":   { "title": "Run At (HH:MM local)", "type": "string", "default": "09:30" },
+          "min_pct":  { "title": "Min Chlorinator %", "type": "integer", "default": 2, "minimum": 0, "maximum": 100 },
+          "max_pct":  { "title": "Max Chlorinator %", "type": "integer", "default": 20, "minimum": 0, "maximum": 100 },
+          "max_step": { "title": "Max Step (%/day)", "type": "integer", "default": 3, "minimum": 1, "maximum": 20 },
+          "gain":     { "title": "Gain (%-step per ppm error)", "type": "number", "default": 2, "minimum": 0.1, "maximum": 10 }
+        }
       },
       "super_chlorinate_key": {
         "title": "Super Chlorinate Button Mapping",
@@ -56,7 +90,10 @@
             "Super Chlorinate",
             "Filter Pump",
             "Pool Water Temp",
-            "Air Temp"
+            "Air Temp",
+            "Free Chlorine",
+            "pH",
+            "Pool Alert"
           ]
         }
       },

@@ -1,0 +1,82 @@
+{
+  "waterBodies": [
+    {
+      "waterBodyId": "00000000-0000-0000-0000-000000000000",
+      "name": "Example Pool",
+      "waterTemp": 81,
+      "waterTempTime": "2026-06-19T01:26:51.713Z",
+      "latestMeasureTime": "2026-06-18T11:40:54.769Z",
+      "freeClTargetEffective": 3,
+      "phTargetEffective": 7.6,
+      "taTargetEffective": 80,
+      "pods": [
+        {
+          "pod": {
+            "podId": 100001
+          },
+          "podId": 100001,
+          "refillables": [
+            {
+              "type": "LAB",
+              "label": "Cassette",
+              "pctLeft": 28,
+              "timeLeftText": "9 days left"
+            },
+            {
+              "type": "BATT",
+              "label": "Battery",
+              "pctLeft": 94
+            }
+          ],
+          "rssiInfo": {
+            "rssi": -52,
+            "rssiTime": "2026-06-18T11:40:54.000Z"
+          }
+        }
+      ],
+      "measurements": [
+        {
+          "type": "FREE_CL",
+          "title": "Free Chlorine",
+          "floatValue": 0.3,
+          "measureTime": "2026-06-18T11:40:54.769Z",
+          "cfg": {
+            "floatRanges": {
+              "RED_MIN": 0,
+              "YELLOW_MIN": 0.6,
+              "GREEN_MIN": 1.6,
+              "GREEN_NORMAL": 3,
+              "GREEN_MAX": 5.4,
+              "YELLOW_MAX": 8.4,
+              "RED_MAX": 10
+            }
+          }
+        },
+        {
+          "type": "PH",
+          "title": "pH",
+          "floatValue": 7.4,
+          "measureTime": "2026-06-18T11:40:54.769Z",
+          "cfg": {
+            "floatRanges": {
+              "RED_MIN": 6.5,
+              "YELLOW_MIN": 7.3,
+              "GREEN_MIN": 7.5,
+              "GREEN_NORMAL": 7.6,
+              "GREEN_MAX": 7.7,
+              "YELLOW_MAX": 7.9,
+              "RED_MAX": 8.5
+            }
+          }
+        },
+        {
+          "type": "TA",
+          "title": "Total Alkalinity",
+          "intValue": 111,
+          "measureTime": "2026-06-18T11:40:54.822Z",
+          "cfg": {}
+        }
+      ]
+    }
+  ]
+}
