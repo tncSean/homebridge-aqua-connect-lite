@@ -73,6 +73,14 @@
           "ta_green_max":   { "title": "Total Alkalinity green band max (ppm)", "type": "integer", "default": 120 },
           "cya_green_min":  { "title": "CYA green band min (ppm)", "type": "integer", "default": 50 },
           "cya_green_max":  { "title": "CYA green band max (ppm)", "type": "integer", "default": 80 },
+          "calcium_green_min": { "title": "Calcium hardness green band min (ppm)", "type": "integer", "default": 200 },
+          "calcium_green_max": { "title": "Calcium hardness green band max (ppm)", "type": "integer", "default": 400 },
+          "leslies_email": { "title": "Leslie's Pool account email", "type": "string", "default": "",
+                              "description": "Leslie's Pool Supplies account email. Enables the daily water-test import (salt, calcium, metals, phosphates, etc.) and the Calcium Hardness tile. Leave blank to disable. Stored in config.json on CT 131 only." },
+          "leslies_password": { "title": "Leslie's Pool account password", "type": "string", "default": "",
+                              "description": "Leslie's Pool account password. Stored in config.json on CT 131 only — never in plugin source or logs." },
+          "leslies_pool_id": { "title": "Leslie's pool profile id", "type": "string", "default": "",
+                              "description": "Leslie's pool_profile_id to import (one water body per id; find it from your account)." },
           "cya_current_ppm": { "title": "Current CYA (ppm) — manual; 0 = unknown (tile shows Unknown)", "type": "integer", "default": 0 },
           "cya_target_ppm": { "title": "CYA dose target (ppm)", "type": "integer", "default": 40,
                               "description": "Conservative in-band target used to compute the stabilizer dose when CYA is low. CYA can only be lowered by dilution, so keep this modest." },
@@ -120,7 +128,8 @@
             "Pool Alert",
             "Salt",
             "Total Alkalinity",
-            "CYA"
+            "CYA",
+            "Calcium Hardness"
           ]
         }
       },

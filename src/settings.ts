@@ -42,6 +42,15 @@ export const CHLORINE_CONTROLLER_DEFAULTS = {
     TA_GREEN_MAX: 120,
     CYA_GREEN_MIN: 50,
     CYA_GREEN_MAX: 80,
+    CALCIUM_GREEN_MIN: 200,
+    CALCIUM_GREEN_MAX: 400,
+    // Leslie's Pool water-test import. Empty email/password = disabled (the
+    // Calcium tile is force-excluded and no Leslie's fetch runs). The owner's
+    // credentials live in config.json only — never in source.
+    LESLIES_EMAIL: '',
+    LESLIES_PASSWORD: '',
+    // Leslie's pool_profile_id to import — set per-install in config.json.
+    LESLIES_POOL_ID: '',
     // Manual CYA reading (ppm). 0 = unknown → the CYA tile shows Unknown.
     CYA_CURRENT_PPM: 0,
     // CYA dose target (ppm) — conservative in-band target; CYA only drops by dilution.
@@ -92,6 +101,7 @@ export const ACCESSORY_TYPE = {
     SALT_SENSOR: 'saltsensor' as const,
     TA_SENSOR: 'tasensor' as const,
     CYA_SENSOR: 'cyasensor' as const,
+    CALCIUM_SENSOR: 'calciumsensor' as const,
 };
 
 export type AccessoryType = typeof ACCESSORY_TYPE[keyof typeof ACCESSORY_TYPE];
@@ -239,6 +249,12 @@ export const ACCESSORIES: AccessoryConfig[] = [
     {
         NAME: 'CYA',
         TYPE: ACCESSORY_TYPE.CYA_SENSOR,
+        TRANSPORT: 'aqualogic',
+    } as AquaLogicAccessoryConfig,
+    // --- Leslie's Pool chemistry tile (v3.8; only instantiated when Leslie's creds present) ---
+    {
+        NAME: 'Calcium Hardness',
+        TYPE: ACCESSORY_TYPE.CALCIUM_SENSOR,
         TRANSPORT: 'aqualogic',
     } as AquaLogicAccessoryConfig,
 ];

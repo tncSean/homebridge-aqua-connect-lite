@@ -15,6 +15,7 @@ import { AquaLogicClient } from '../aqualogic/client';
 import { PoolState } from '../aqualogic/state';
 import { Chlorinator } from '../chlorinator';
 import { WaterGuruClient, WgReading } from './client';
+import { LesliesClient, LesliesReading } from '../leslies/client';
 import { computeTargetPct, ControlParams } from './control';
 import { evaluateRedFlags, RedFlagInput } from './redflag';
 import { nextBestAction, cyaDoseOz } from './nextaction';
@@ -52,6 +53,9 @@ export interface ControllerConfig extends ControlParams {
     taGreenMax: number;
     cyaGreenMin: number;
     cyaGreenMax: number;
+    /** Calcium hardness green band (ppm) for the Leslie's-fed Calcium tile. */
+    calciumGreenMin: number;
+    calciumGreenMax: number;
     /** Manual CYA reading (ppm); 0 = unknown → tile shows Unknown. */
     cyaCurrentPpm: number;
     /** CYA dose target (ppm) — conservative in-band target for the stabilizer dose. */
@@ -70,6 +74,7 @@ export interface ControllerSensors {
     salt?: ChemistrySensor;
     ta?: ChemistrySensor;
     cya?: ChemistrySensor;
+    calcium?: ChemistrySensor;
     alert?: PoolAlert;
 }
 
@@ -90,6 +95,8 @@ export class WaterGuruController {
         private readonly sensors: ControllerSensors,
         private readonly cfg: ControllerConfig,
         private readonly notifier: Notifier | null = null,
+        /** Leslie's Pool client — null when creds absent (Calcium tile force-excluded). */
+        private readonly leslies: LesliesClient | null = null,
     ) {
         // Feed the generation tracker from live RS-485 state changes.
         this.aqua.state.on('change', (key: keyof PoolState) => {
@@ -145,6 +152,19 @@ export class WaterGuruController {
             return; // never adjust on stale data
         }
 
+        // Leslie's Pool water-test import (DAILY only; non-fatal). Adds salt,
+        // calcium, metals, phosphates etc. that WaterGuru does not measure. A
+        // failure here NEVER breaks the WG run — warn + continue with no Leslie's.
+        let leslies: LesliesReading | undefined;
+        if (trigger === 'daily' && this.leslies) {
+            try {
+                leslies = await this.leslies.fetch();
+                this.logLesliesReading(leslies);
+            } catch (e) {
+                this.platform.log.warn(`Leslie's fetch failed (non-fatal): ${(e as Error).message}`);
+            }
+        }
+
         // Update all chemistry compliance tiles from fresh chemistry. Each tile
         // shows a color-coded compliance state vs. its green band; the exact
         // value/instruction is delivered via the log + the optional ntfy push.
@@ -167,10 +187,23 @@ export class WaterGuruController {
         if (reading.ta !== undefined) this.sensors.ta?.update(reading.ta, taBand);
         chem.push({ name: 'Total Alkalinity', value: reading.ta, unit: 'ppm', band: taBand });
 
-        // Salt is a manual config value (not on RS-485/WG).
+        // Salt: prefer Leslie's MEASURED salt when present; else the manual
+        // config value (not on RS-485/WG). Log which source fed the tile + NBA.
         const saltBand: Band = { min: this.cfg.saltGreenMin, max: this.cfg.saltGreenMax };
-        this.sensors.salt?.update(this.cfg.saltCurrentPpm, saltBand);
-        chem.push({ name: 'Salt', value: this.cfg.saltCurrentPpm, unit: 'ppm', band: saltBand });
+        const saltPpm = leslies?.salt !== undefined ? leslies.salt : this.cfg.saltCurrentPpm;
+        const saltSource = leslies?.salt !== undefined ? "Leslie's (measured)" : 'config (manual)';
+        this.platform.log.info(`Salt source: ${saltSource} → ${saltPpm} ppm`);
+        this.sensors.salt?.update(saltPpm, saltBand);
+        chem.push({ name: 'Salt', value: saltPpm, unit: 'ppm', band: saltBand });
+
+        // Calcium hardness: Leslie's-only (WG does not measure it). Prefer the
+        // ideal range Leslie's returns; else the configured calcium green band.
+        // Tile shows Unknown when Leslie's has no calcium reading.
+        const calciumBand: Band = leslies?.calciumRange
+            ? { min: leslies.calciumRange[0], max: leslies.calciumRange[1] }
+            : { min: this.cfg.calciumGreenMin, max: this.cfg.calciumGreenMax };
+        this.sensors.calcium?.update(leslies?.calcium, calciumBand);
+        chem.push({ name: 'Calcium Hardness', value: leslies?.calcium, unit: 'ppm', band: calciumBand });
 
         // CYA — WG tests this daily, so prefer the LIVE reading (value + GREEN band).
         // Fall back to the configured manual value/band only when WG omits CYA.
@@ -210,8 +243,10 @@ export class WaterGuruController {
 
         // Next-best-action: a pending FOUNDATIONAL action (e.g. add salt) supersedes
         // auto-tuning — it holds the drive AND owns the Pool Alert tile this run.
+        // Prefer Leslie's measured salt for the NBA dose when available, so the
+        // "add salt" recommendation reflects the real measurement, not stale config.
         const nba = nextBestAction({
-            saltCurrentPpm: this.cfg.saltCurrentPpm,
+            saltCurrentPpm: saltPpm,
             saltTargetPpm: this.cfg.saltTargetPpm,
             saltDeadbandPpm: this.cfg.saltDeadbandPpm,
             poolGallons: this.cfg.poolGallons,
@@ -275,6 +310,35 @@ export class WaterGuruController {
 
         // Roll the generation accumulator over at the daily mark.
         if (trigger === 'daily') this.tracker.reset(Date.now());
+    }
+
+    /**
+     * Log the full latest Leslie's test verbatim — every parsed parameter plus
+     * the test date — so the owner sees the complete reading in the daily log.
+     * CYA/FC/pH/TA are logged here purely as a cross-check; their HomeKit tile
+     * source stays WaterGuru (daily/fresher). NEVER logs credentials.
+     */
+    private logLesliesReading(r: LesliesReading): void {
+        const parts: string[] = [];
+        const add = (label: string, v: number | undefined, unit: string): void => {
+            if (v !== undefined) parts.push(`${label} ${v}${unit}`);
+        };
+        add('salt', r.salt, ' ppm');
+        add('CYA', r.cya, ' ppm');
+        add('calcium', r.calcium, ' ppm');
+        add('FC', r.fc, ' ppm');
+        add('pH', r.ph, '');
+        add('TA', r.ta, ' ppm');
+        add('phosphates', r.phosphates, ' ppb');
+        add('copper', r.copper, ' ppm');
+        add('iron', r.iron, ' ppm');
+        add('TDS', r.tds, ' ppm');
+        add('bromine', r.bromine, ' ppm');
+        add('total Cl', r.totalChlorine, ' ppm');
+        const when = r.testDate !== undefined ? new Date(r.testDate).toISOString() : 'unknown date';
+        const src = r.isStoreTest === true ? 'in-store' : r.isStoreTest === false ? 'AccuBlue Home' : 'source unknown';
+        const body = parts.length > 0 ? parts.join(', ') : 'no chemistry parameters returned';
+        this.platform.log.info(`Leslie's (tested ${when}, ${src}): ${body}`);
     }
 
     /** Log + raise a Pool Alert for a chlorinator drive failure (thrown OR nav-null). */

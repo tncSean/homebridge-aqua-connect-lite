@@ -14,6 +14,7 @@ import { PoolAlert } from './waterguru/poolalert';
 import { ChemistrySensor } from './waterguru/chemistrysensor';
 import { Notifier } from './waterguru/notifier';
 import { WaterGuruClient } from './waterguru/client';
+import { LesliesClient } from './leslies/client';
 import { WaterGuruController, ControllerConfig } from './waterguru/controller';
 
 /**
@@ -40,6 +41,7 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
     private saltSensor: ChemistrySensor | null = null;
     private taSensor: ChemistrySensor | null = null;
     private cyaSensor: ChemistrySensor | null = null;
+    private calciumSensor: ChemistrySensor | null = null;
     private chlorinatorAccessory: Chlorinator | null = null;
 
     constructor(
@@ -114,6 +116,23 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
                 if (!excluded.includes(n)) excluded.push(n);
             }
             this.log.info('Water Guru credentials absent — chlorine auto-tuner disabled (plugin behaves as before).');
+        }
+
+        // Leslie's Pool water-test import. Creds (email/password) live in
+        // config.json only — never in source/logs. When absent, the Leslie's
+        // fetch is skipped and the Calcium tile is force-excluded.
+        const lesliesCfg = (this.config.chlorine_controller ?? {}) as Record<string, unknown>;
+        const lesliesEmail = typeof lesliesCfg.leslies_email === 'string' ? lesliesCfg.leslies_email.trim() : '';
+        const lesliesPassword = typeof lesliesCfg.leslies_password === 'string' ? lesliesCfg.leslies_password : '';
+        const lesliesPoolId = typeof lesliesCfg.leslies_pool_id === 'string' && lesliesCfg.leslies_pool_id.trim().length > 0
+            ? lesliesCfg.leslies_pool_id.trim()
+            : CHLORINE_CONTROLLER_DEFAULTS.LESLIES_POOL_ID;
+        const lesliesEnabled = lesliesEmail.length > 0 && lesliesPassword.length > 0 && lesliesPoolId.length > 0;
+        if (!lesliesEnabled) {
+            if (!excluded.includes('Calcium Hardness')) excluded.push('Calcium Hardness');
+            this.log.info("Leslie's credentials absent — Leslie's water-test import disabled (Calcium tile excluded).");
+        } else {
+            this.log.info(`Leslie's water-test import enabled (pool profile ${lesliesPoolId}).`);
         }
 
         const hasAqualogic = ACCESSORIES.some(
@@ -222,6 +241,8 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
                 taGreenMax: num(raw.ta_green_max, CHLORINE_CONTROLLER_DEFAULTS.TA_GREEN_MAX),
                 cyaGreenMin: num(raw.cya_green_min, CHLORINE_CONTROLLER_DEFAULTS.CYA_GREEN_MIN),
                 cyaGreenMax: num(raw.cya_green_max, CHLORINE_CONTROLLER_DEFAULTS.CYA_GREEN_MAX),
+                calciumGreenMin: num(raw.calcium_green_min, CHLORINE_CONTROLLER_DEFAULTS.CALCIUM_GREEN_MIN),
+                calciumGreenMax: num(raw.calcium_green_max, CHLORINE_CONTROLLER_DEFAULTS.CALCIUM_GREEN_MAX),
                 cyaCurrentPpm: num(raw.cya_current_ppm, CHLORINE_CONTROLLER_DEFAULTS.CYA_CURRENT_PPM),
                 cyaTargetPpm: num(raw.cya_target_ppm, CHLORINE_CONTROLLER_DEFAULTS.CYA_TARGET_PPM),
                 stabilizerOzPerPpmPer10kGal: num(
@@ -238,6 +259,9 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
                     { ntfyServer: cfg.ntfyServer, ntfyTopic: cfg.ntfyTopic || undefined },
                     this.log, () => Date.now(), fetch,
                 );
+                const lesliesClient = lesliesEnabled
+                    ? new LesliesClient(lesliesEmail, lesliesPassword, lesliesPoolId, this.log)
+                    : null;
                 this.wgController = new WaterGuruController(
                     this, wgClient, this.aquaLogicClient, this.chlorinatorAccessory,
                     {
@@ -246,10 +270,12 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
                         salt: this.saltSensor ?? undefined,
                         ta: this.taSensor ?? undefined,
                         cya: this.cyaSensor ?? undefined,
+                        calcium: this.calciumSensor ?? undefined,
                         alert: this.poolAlert ?? undefined,
                     },
                     cfg,
                     notifier,
+                    lesliesClient,
                 );
                 this.wgController.start();
                 this.log.info(`Chlorine auto-tuner started (run_at ${cfg.runAt}, compute_only=${cfg.computeOnly}, max ${cfg.maxPct}%).`);
@@ -299,6 +325,9 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
                 return;
             case ACCESSORY_TYPE.CYA_SENSOR:
                 this.cyaSensor = new ChemistrySensor(this, platformAccessory, { unit: 'ppm' });
+                return;
+            case ACCESSORY_TYPE.CALCIUM_SENSOR:
+                this.calciumSensor = new ChemistrySensor(this, platformAccessory, { unit: 'ppm' });
                 return;
             case ACCESSORY_TYPE.FAN:
                 this.requireClient(cfg.NAME);

@@ -1,0 +1,94 @@
+{
+  "water_test_history": {
+    "water_tests": [
+      {
+        "water_test_type": "Free Chlorine",
+        "water_test_values": [
+          { "timestamp": "20250511 123942.407", "value": 3.1, "is_store_test": false, "results_id": "FC-OLD" },
+          { "timestamp": "20260519 154842.757", "value": 1.2, "is_store_test": false, "results_id": "FC-LATEST" }
+        ]
+      },
+      {
+        "water_test_type": "Total Chlorine",
+        "water_test_values": [
+          { "timestamp": "20260519 154842.757", "value": 1.5, "is_store_test": false, "results_id": "TC-1" }
+        ]
+      },
+      {
+        "water_test_type": "pH",
+        "ideal_low": 7.2,
+        "ideal_high": 7.8,
+        "water_test_values": [
+          { "timestamp": "20260519 154842.757", "value": 7.5, "is_store_test": false, "results_id": "PH-1" }
+        ]
+      },
+      {
+        "water_test_type": "Alkalinity",
+        "water_test_values": [
+          { "timestamp": "20260519 154842.757", "value": 95, "is_store_test": false, "results_id": "TA-1" }
+        ]
+      },
+      {
+        "water_test_type": "Calcium",
+        "water_test_values": [
+          { "timestamp": "20260101 090000.000", "value": 180, "is_store_test": true, "results_id": "CA-OLD" },
+          { "timestamp": "20260519 154842.757", "value": 250, "ideal_low": 200, "ideal_high": 400, "is_store_test": false, "results_id": "CA-LATEST" }
+        ]
+      },
+      {
+        "water_test_type": "Cyanuric Acid",
+        "water_test_values": [
+          { "timestamp": "20260519 154842.757", "value": 16, "is_store_test": false, "results_id": "CYA-1" }
+        ]
+      },
+      {
+        "water_test_type": "Salt",
+        "water_test_values": [
+          { "timestamp": "20260519 154842.757", "value": 3100, "is_store_test": false, "results_id": "SALT-1" }
+        ]
+      },
+      {
+        "water_test_type": "Copper",
+        "water_test_values": [
+          { "timestamp": "20260519 154842.757", "value": 0.1, "is_store_test": false, "results_id": "CU-1" }
+        ]
+      },
+      {
+        "water_test_type": "Iron",
+        "water_test_values": [
+          { "timestamp": "20260519 154842.757", "value": 0.0, "is_store_test": false, "results_id": "FE-1" }
+        ]
+      },
+      {
+        "water_test_type": "Phosphates",
+        "water_test_values": [
+          { "timestamp": "20260519 154842.757", "value": 200, "is_store_test": false, "results_id": "PO4-1" }
+        ]
+      },
+      {
+        "water_test_type": "TDS",
+        "water_test_values": [
+          { "timestamp": "20260519 154842.757", "value": 1500, "is_store_test": false, "results_id": "TDS-1" }
+        ]
+      },
+      {
+        "water_test_type": "Bromine",
+        "water_test_values": [
+          { "timestamp": "20260519 154842.757", "value": null, "is_store_test": false, "results_id": "BR-1" }
+        ]
+      },
+      {
+        "water_test_type": "Biguanides",
+        "water_test_values": [
+          { "timestamp": "20260519 154842.757", "value": 0.0, "is_store_test": false, "results_id": "BIG-1" }
+        ]
+      },
+      {
+        "water_test_type": "Black Algae",
+        "water_test_values": [
+          { "timestamp": "20260519 154842.757", "boolean_test_value": null, "is_store_test": false, "results_id": "ALG-1" }
+        ]
+      }
+    ]
+  }
+}
