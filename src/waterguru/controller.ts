@@ -73,6 +73,11 @@ export class WaterGuruController {
     }
 
     private scheduleDaily(): void {
+        if (!isValidRunAt(this.cfg.runAt)) {
+            this.platform.log.warn(
+                `WG controller: configured run_at "${this.cfg.runAt}" is invalid (need HH:MM, 00-23:00-59) — defaulting to 09:30.`,
+            );
+        }
         const delay = msUntilNext(this.cfg.runAt, new Date());
         this.platform.log.info(`WG controller: next run in ${(delay / 3.6e6).toFixed(1)}h (at ${this.cfg.runAt})`);
         this.dailyTimer = setTimeout(() => {
@@ -115,9 +120,13 @@ export class WaterGuruController {
             } else if (this.chlorinator) {
                 this.platform.log.info(`WG: driving chlorinator ${curPct}% → ${target}% (FC ${reading.fc}ppm).`);
                 try {
-                    await this.chlorinator.driveTo(target);
+                    const final = await this.chlorinator.driveTo(target);
+                    if (final === null) {
+                        // driveTo returns null on nav failure (it does NOT throw).
+                        this.raiseDriveFailure(`Auto-tuner could not navigate the chlorinator menu to set ${target}%`);
+                    }
                 } catch (e) {
-                    this.platform.log.error(`WG: chlorinator drive failed: ${(e as Error).message}`);
+                    this.raiseDriveFailure(`Auto-tuner failed to set chlorinator to ${target}% — ${(e as Error).message}`);
                 }
             }
         }
@@ -132,7 +141,18 @@ export class WaterGuruController {
         if (trigger === 'daily') this.tracker.reset(Date.now());
     }
 
+    /** Log + raise a Pool Alert for a chlorinator drive failure (thrown OR nav-null). */
+    private raiseDriveFailure(reason: string): void {
+        this.platform.log.error(`WG: ${reason}`);
+        this.sensors.alert?.raise(reason);
+    }
+
     private redflagInput(r: WgReading, noFlowFraction: number): RedFlagInput {
+        if (r.fcRange === undefined) {
+            this.platform.log.warn(
+                'WG response lacked a recommended FC range (floatRanges) — auto-tuner using default [3,5] band.',
+            );
+        }
         return {
             fcHistory: this.fcHistory,
             pctHistory: this.pctHistory,
@@ -161,13 +181,26 @@ function push(arr: number[], v: number, cap: number): void {
     while (arr.length > cap) arr.shift();
 }
 
+/** Parse "HH:MM" into a valid {h,m} (0-23/0-59) or null. Shared by msUntilNext + isValidRunAt. */
+function parseRunAt(hhmm: string): { h: number; m: number } | null {
+    const parts = hhmm.split(':').map(n => parseInt(n, 10));
+    const h = parts[0];
+    const m = parts[1];
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+    return { h, m };
+}
+
+/** True when `hhmm` parses into a valid local HH:MM. */
+export function isValidRunAt(hhmm: string): boolean {
+    return parseRunAt(hhmm) !== null;
+}
+
 /** ms from `now` until the next local HH:MM. Falls back to 09:30 on parse failure. */
 export function msUntilNext(hhmm: string, now: Date): number {
-    const parts = hhmm.split(':').map(n => parseInt(n, 10));
-    const h = Number.isFinite(parts[0]) ? parts[0] : 9;
-    const m = Number.isFinite(parts[1]) ? parts[1] : 30;
+    const parsed = parseRunAt(hhmm) ?? { h: 9, m: 30 };
     const next = new Date(now);
-    next.setHours(h, m, 0, 0);
+    next.setHours(parsed.h, parsed.m, 0, 0);
     if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
     return next.getTime() - now.getTime();
 }

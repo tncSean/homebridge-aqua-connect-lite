@@ -166,7 +166,7 @@ export class WaterGuruClient {
                     );
                     resolve({ idToken, userId: payload['cognito:username'] as string });
                 },
-                onFailure: (err) => reject(new Error(`WG Cognito login failed: ${err.message ?? err}`)),
+                onFailure: (err) => reject(new Error(`WG Cognito login failed: ${String(err?.message ?? 'unknown error')}`)),
             });
         });
     }

@@ -36,6 +36,10 @@ export class Chlorinator {
     private pendingTarget: number | null = null;
     private debounceTimer: NodeJS.Timeout | null = null;
     private writing = false;
+    /** Resolvers of debounced callers superseded by a newer setBrightness — we
+     *  resolve (never reject) them when their timer is cleared so every HAP
+     *  request settles exactly once (otherwise HomeKit shows "No Response"). */
+    private pendingResolvers: Array<() => void> = [];
 
     private static readonly DEBOUNCE_MS = 300;
 
@@ -130,12 +134,36 @@ export class Chlorinator {
 
     private queueBrightness(target: number): Promise<void> {
         this.pendingTarget = target;
-        if (this.debounceTimer) clearTimeout(this.debounceTimer);
+        if (this.debounceTimer) {
+            // A newer value supersedes the pending debounce window. Resolve every
+            // caller queued so far so HAP gets a response (HomeKit coalesces rapid
+            // slider drags; the final flush applies the latest target). Without
+            // this, each superseded caller's Promise hangs → "No Response".
+            clearTimeout(this.debounceTimer);
+            this.debounceTimer = null;
+            this.resolvePending();
+        }
         return new Promise<void>((resolve) => {
+            this.pendingResolvers.push(resolve);
             this.debounceTimer = setTimeout(() => {
-                this.flushPending().then(resolve, () => resolve());
+                this.debounceTimer = null;
+                // Hand the queued resolvers to the flush so they all settle when
+                // the write completes (or immediately on failure).
+                const resolvers = this.pendingResolvers;
+                this.pendingResolvers = [];
+                this.flushPending().then(
+                    () => resolvers.forEach(r => r()),
+                    () => resolvers.forEach(r => r()),
+                );
             }, Chlorinator.DEBOUNCE_MS);
         });
+    }
+
+    /** Settle every queued debounced caller's Promise (resolve, never reject). */
+    private resolvePending(): void {
+        const resolvers = this.pendingResolvers;
+        this.pendingResolvers = [];
+        resolvers.forEach(r => r());
     }
 
     private async flushPending(): Promise<void> {

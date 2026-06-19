@@ -52,7 +52,7 @@ function noFcImprovement(xs: number[]): boolean {
 
 /** Evaluate all conditions; return the highest-priority active alert. */
 export function evaluateRedFlags(i: RedFlagInput): RedFlag {
-    const ok = (reason: string): RedFlag => ({ active: true, reason });
+    const flag = (reason: string): RedFlag => ({ active: true, reason });
     const [low] = i.recommendedRange;
     const latestFc = i.fcHistory[i.fcHistory.length - 1];
     const latestPct = i.pctHistory[i.pctHistory.length - 1];
@@ -60,34 +60,34 @@ export function evaluateRedFlags(i: RedFlagInput): RedFlag {
 
     // 1) Data integrity first — a broken pipe invalidates everything else.
     if (i.wgFetchFailures >= WG_FAIL_ALERT) {
-        return ok(`Water Guru fetch failing (${i.wgFetchFailures} days) — chemistry is stale; auto-tuning paused.`);
+        return flag(`Water Guru fetch failing (${i.wgFetchFailures} days) — chemistry is stale; auto-tuning paused.`);
     }
     if (i.podOnline === false) {
-        return ok('Water Guru pod offline — no fresh chemistry; auto-tuning paused.');
+        return flag('Water Guru pod offline — no fresh chemistry; auto-tuning paused.');
     }
     if (i.cassettePercent !== undefined && i.cassettePercent <= 0) {
-        return ok('Water Guru cassette empty — replace it to resume daily testing.');
+        return flag('Water Guru cassette empty — replace it to resume daily testing.');
     }
 
     // 2) Flow — the dominant failure mode this season; can't be fixed by %.
     if (i.noFlowFraction >= NOFLOW_FRACTION_ALERT) {
         const pctDay = Math.round(i.noFlowFraction * 100);
-        return ok(`Cell spent ${pctDay}% of yesterday in No-Flow — raise pump speed/runtime during the chlorination window.`);
+        return flag(`Cell spent ${pctDay}% of yesterday in No-Flow — raise pump speed/runtime during the chlorination window.`);
     }
 
     // 3) Salt — under-driven cell.
     if (i.saltPpm !== undefined && i.saltPpm < SALT_LOW_PPM) {
-        return ok(`Salt low (${i.saltPpm} ppm) — cell under-driven; add salt.`);
+        return flag(`Salt low (${i.saltPpm} ppm) — cell under-driven; add salt.`);
     }
 
     // 4) Can't compensate further — already maxed and still low.
     if (belowTarget && latestPct >= i.maxPct) {
-        return ok(`Chlorinator at max ${i.maxPct}% and FC still below target — can't compensate further; test/raise CYA or inspect the cell.`);
+        return flag(`Chlorinator at max ${i.maxPct}% and FC still below target — can't compensate further; test/raise CYA or inspect the cell.`);
     }
 
     // 5) Climbing with no payoff — changes aren't reaching the water.
     if (belowTarget && isRising(i.pctHistory) && noFcImprovement(i.fcHistory)) {
-        return ok('FC not holding despite raising the chlorinator 3 days running — test/raise CYA (UV burn-off) or inspect the cell.');
+        return flag('FC not holding despite raising the chlorinator 3 days running — test/raise CYA (UV burn-off) or inspect the cell.');
     }
 
     return { active: false, reason: '' };
