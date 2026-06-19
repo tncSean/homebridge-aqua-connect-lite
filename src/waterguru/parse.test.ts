@@ -31,6 +31,18 @@ test('real fixture: ph === 7.4', () => {
     assert.strictEqual(r.ph, 7.4);
 });
 
+test('real fixture: cya === 65 (from intValue)', () => {
+    const r = parseDashboard(FIXTURE);
+    assert.strictEqual(r.cya, 65);
+});
+
+test('real fixture: cyaRange GREEN band [30, 80] (from intRanges)', () => {
+    const r = parseDashboard(FIXTURE);
+    assert.ok(Array.isArray(r.cyaRange), 'cyaRange should be an array');
+    assert.strictEqual(r.cyaRange![0], 30);
+    assert.strictEqual(r.cyaRange![1], 80);
+});
+
 test('real fixture: waterTempF === 81', () => {
     const r = parseDashboard(FIXTURE);
     assert.strictEqual(r.waterTempF, 81);

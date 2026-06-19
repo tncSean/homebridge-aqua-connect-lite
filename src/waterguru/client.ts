@@ -10,6 +10,8 @@ export interface WgReading {
     fcRange?: [number, number];
     ph?: number;
     ta?: number;
+    cya?: number;
+    cyaRange?: [number, number];
     waterTempF?: number;
     measureTime?: number;
     cassettePercent?: number;
@@ -27,7 +29,7 @@ interface RawMeasurement {
     floatValue?: number;
     intValue?: number;
     measureTime?: string;
-    cfg?: { floatRanges?: RawFloatRanges };
+    cfg?: { floatRanges?: RawFloatRanges; intRanges?: RawFloatRanges };
 }
 interface RawRefillable {
     type?: string;   // 'LAB' = cassette, 'BATT' = battery
@@ -62,6 +64,7 @@ export function parseDashboard(json: unknown): WgReading {
     const fcM = find('FREE_CL');
     const phM = find('PH');
     const taM = find('TA');
+    const cyaM = find('CYA');
 
     // Pod online = pod exists and has a recent rssiInfo (rssiTime present → connected)
     const pod = Array.isArray(wb.pods) ? wb.pods[0] : undefined;
@@ -90,6 +93,18 @@ export function parseDashboard(json: unknown): WgReading {
         const taVal = typeof taM.floatValue === 'number' ? taM.floatValue
             : typeof taM.intValue === 'number' ? taM.intValue : undefined;
         if (taVal !== undefined) reading.ta = taVal;
+    }
+
+    // CYA (Cyanuric Acid) — WG tests this daily; comes through as intValue with an
+    // intRanges GREEN band (same shape as TA). Tolerate floatValue/floatRanges too.
+    if (cyaM) {
+        const cyaVal = typeof cyaM.floatValue === 'number' ? cyaM.floatValue
+            : typeof cyaM.intValue === 'number' ? cyaM.intValue : undefined;
+        if (cyaVal !== undefined) reading.cya = cyaVal;
+        const cyaRanges = cyaM.cfg?.intRanges ?? cyaM.cfg?.floatRanges;
+        if (cyaRanges && typeof cyaRanges.GREEN_MIN === 'number' && typeof cyaRanges.GREEN_MAX === 'number') {
+            reading.cyaRange = [cyaRanges.GREEN_MIN, cyaRanges.GREEN_MAX];
+        }
     }
 
     // Water temp from water body directly

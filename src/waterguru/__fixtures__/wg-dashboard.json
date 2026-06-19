@@ -75,6 +75,23 @@
           "intValue": 111,
           "measureTime": "2026-06-18T11:40:54.822Z",
           "cfg": {}
+        },
+        {
+          "type": "CYA",
+          "title": "Cyanuric Acid",
+          "intValue": 65,
+          "measureTime": "2026-06-18T11:40:54.822Z",
+          "cfg": {
+            "intRanges": {
+              "RED_MIN": 0,
+              "YELLOW_MIN": 20,
+              "GREEN_MIN": 30,
+              "GREEN_NORMAL": 55,
+              "GREEN_MAX": 80,
+              "YELLOW_MAX": 200,
+              "RED_MAX": 300
+            }
+          }
         }
       ]
     }

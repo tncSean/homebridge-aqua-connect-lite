@@ -163,13 +163,19 @@ export class WaterGuruController {
         if (reading.ta !== undefined) this.sensors.ta?.update(reading.ta, taBand);
         chem.push({ name: 'Total Alkalinity', value: reading.ta, unit: 'ppm', band: taBand });
 
-        // Salt + CYA are manual config values (not on RS-485/WG). 0 CYA = unknown.
+        // Salt is a manual config value (not on RS-485/WG).
         const saltBand: Band = { min: this.cfg.saltGreenMin, max: this.cfg.saltGreenMax };
         this.sensors.salt?.update(this.cfg.saltCurrentPpm, saltBand);
         chem.push({ name: 'Salt', value: this.cfg.saltCurrentPpm, unit: 'ppm', band: saltBand });
 
-        const cyaBand: Band = { min: this.cfg.cyaGreenMin, max: this.cfg.cyaGreenMax };
-        const cyaValue = this.cfg.cyaCurrentPpm > 0 ? this.cfg.cyaCurrentPpm : undefined;
+        // CYA — WG tests this daily, so prefer the LIVE reading (value + GREEN band).
+        // Fall back to the configured manual value/band only when WG omits CYA.
+        const cyaBand: Band = reading.cyaRange
+            ? { min: reading.cyaRange[0], max: reading.cyaRange[1] }
+            : { min: this.cfg.cyaGreenMin, max: this.cfg.cyaGreenMax };
+        const cyaValue = reading.cya !== undefined
+            ? reading.cya
+            : (this.cfg.cyaCurrentPpm > 0 ? this.cfg.cyaCurrentPpm : undefined);
         this.sensors.cya?.update(cyaValue, cyaBand);
         chem.push({ name: 'CYA', value: cyaValue, unit: 'ppm', band: cyaBand });
 
