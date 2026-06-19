@@ -26,6 +26,11 @@ export const CHLORINE_CONTROLLER_DEFAULTS = {
     MAX_STEP: 3,
     GAIN: 2,
     COMPUTE_ONLY: false,
+    // Next-best-action (foundational chemistry). Salt is manual — not on RS-485/WG.
+    POOL_GALLONS: 31400,
+    SALT_CURRENT_PPM: 2900,
+    SALT_TARGET_PPM: 3400,
+    SALT_DEADBAND_PPM: 150,
 };
 
 /** Default AquaLogic (W610 bus bridge) connection settings */

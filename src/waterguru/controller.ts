@@ -17,6 +17,7 @@ import { Chlorinator } from '../chlorinator';
 import { WaterGuruClient, WgReading } from './client';
 import { computeTargetPct, ControlParams } from './control';
 import { evaluateRedFlags, RedFlagInput } from './redflag';
+import { nextBestAction } from './nextaction';
 import { GenerationTracker } from './generation-tracker';
 import { ChlorineSensor } from './chlorinesensor';
 import { PhSensor } from './phsensor';
@@ -28,6 +29,14 @@ export interface ControllerConfig extends ControlParams {
     runAt: string;
     /** If true, compute + log the proposed step but DO NOT drive the chlorinator. */
     computeOnly: boolean;
+    /** Pool volume (gal), manual — feeds the salt-dose next-best-action. */
+    poolGallons?: number;
+    /** Last-known salt (ppm), manual — not on RS-485/WG. */
+    saltCurrentPpm?: number;
+    /** Target salt (ppm), manual. */
+    saltTargetPpm?: number;
+    /** Salt deadband (ppm) — don't prompt within this margin of target. */
+    saltDeadbandPpm?: number;
 }
 
 const HISTORY_DAYS = 7;
@@ -110,8 +119,20 @@ export class WaterGuruController {
         const curPct = this.aqua.state.current.chlorinatorPercent;
         if (typeof curPct === 'number') push(this.pctHistory, curPct, HISTORY_DAYS);
 
+        // Next-best-action: a pending FOUNDATIONAL action (e.g. add salt) supersedes
+        // auto-tuning — it holds the drive AND owns the Pool Alert tile this run.
+        const nba = nextBestAction({
+            saltCurrentPpm: this.cfg.saltCurrentPpm,
+            saltTargetPpm: this.cfg.saltTargetPpm,
+            saltDeadbandPpm: this.cfg.saltDeadbandPpm,
+            poolGallons: this.cfg.poolGallons,
+        });
+        if (nba.blocksDrive) {
+            this.platform.log.info(`WG: holding chlorinator auto-tune — next best action: ${nba.message}`);
+        }
+
         // Compute + apply the bounded step (daily only; startup is read-only).
-        if (trigger === 'daily' && reading.fc !== undefined && reading.fcRange && typeof curPct === 'number') {
+        if (trigger === 'daily' && !nba.blocksDrive && reading.fc !== undefined && reading.fcRange && typeof curPct === 'number') {
             const target = computeTargetPct(curPct, reading.fc, reading.fcRange, this.cfg);
             if (target === curPct) {
                 this.platform.log.info(`WG: FC ${reading.fc}ppm in range — no chlorinator change (at ${curPct}%).`);
@@ -131,11 +152,17 @@ export class WaterGuruController {
             }
         }
 
-        // Red-flag evaluation (always, even startup, so an offline pod surfaces fast).
-        const snap = this.tracker.snapshot(Date.now());
-        const rf = evaluateRedFlags(this.redflagInput(reading, snap.noFlowFraction));
-        if (rf.active) this.sensors.alert?.raise(rf.reason);
-        else this.sensors.alert?.clear();
+        // Tile precedence: a pending foundational action owns the Pool Alert tile
+        // and supersedes red-flags for this run. Otherwise, evaluate red-flags as
+        // usual (always, even startup, so an offline pod surfaces fast).
+        if (nba.active) {
+            this.sensors.alert?.raise(nba.message, nba.tileName);
+        } else {
+            const snap = this.tracker.snapshot(Date.now());
+            const rf = evaluateRedFlags(this.redflagInput(reading, snap.noFlowFraction));
+            if (rf.active) this.sensors.alert?.raise(rf.reason);
+            else this.sensors.alert?.clear();
+        }
 
         // Roll the generation accumulator over at the daily mark.
         if (trigger === 'daily') this.tracker.reset(Date.now());

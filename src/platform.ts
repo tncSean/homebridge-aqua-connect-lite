@@ -203,6 +203,10 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
                 maxStep: num(raw.max_step, CHLORINE_CONTROLLER_DEFAULTS.MAX_STEP),
                 gain: num(raw.gain, CHLORINE_CONTROLLER_DEFAULTS.GAIN),
                 computeOnly: raw.compute_only === undefined ? CHLORINE_CONTROLLER_DEFAULTS.COMPUTE_ONLY : raw.compute_only === true,
+                poolGallons: num(raw.pool_gallons, CHLORINE_CONTROLLER_DEFAULTS.POOL_GALLONS),
+                saltCurrentPpm: num(raw.salt_current_ppm, CHLORINE_CONTROLLER_DEFAULTS.SALT_CURRENT_PPM),
+                saltTargetPpm: num(raw.salt_target_ppm, CHLORINE_CONTROLLER_DEFAULTS.SALT_TARGET_PPM),
+                saltDeadbandPpm: num(raw.salt_deadband_ppm, CHLORINE_CONTROLLER_DEFAULTS.SALT_DEADBAND_PPM),
             };
             if (cfg.enabled) {
                 const wgClient = new WaterGuruClient(wgEmail, wgPassword, this.log);
