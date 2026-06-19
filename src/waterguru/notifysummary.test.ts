@@ -49,6 +49,31 @@ test('only out-of-range → "Pool chemistry alert" with the list', () => {
     );
 });
 
+test('item with advice → appends "→ <advice>" to that line', () => {
+    const i = base();
+    i.outOfRange = [
+        { name: 'CYA', value: 14, unit: 'ppm', band: { min: 30, max: 100 }, advice: 'add ~6.5 lbs stabilizer' },
+    ];
+    const r = buildChemNotification(i);
+    assert.ok(r);
+    assert.strictEqual(r!.title, 'Pool chemistry alert');
+    assert.strictEqual(r!.body, 'CYA 14 ppm low (target 30–100) → add ~6.5 lbs stabilizer');
+});
+
+test('advice rides along under the nba "; also" suffix too', () => {
+    const r = buildChemNotification({
+        nbaActive: true,
+        nbaMessage: 'Add 130 lbs salt',
+        outOfRange: [
+            { name: 'CYA', value: 14, unit: 'ppm', band: { min: 30, max: 100 }, advice: 'add ~6.5 lbs stabilizer' },
+        ],
+    });
+    assert.strictEqual(
+        r!.body,
+        'Add 130 lbs salt; also CYA 14 ppm low (target 30–100) → add ~6.5 lbs stabilizer',
+    );
+});
+
 test('all good (no nba, empty list) → null', () => {
     assert.strictEqual(buildChemNotification(base()), null);
 });

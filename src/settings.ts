@@ -44,6 +44,8 @@ export const CHLORINE_CONTROLLER_DEFAULTS = {
     CYA_GREEN_MAX: 80,
     // Manual CYA reading (ppm). 0 = unknown → the CYA tile shows Unknown.
     CYA_CURRENT_PPM: 0,
+    // CYA dose target (ppm) — conservative in-band target; CYA only drops by dilution.
+    CYA_TARGET_PPM: 40,
     // ntfy push. Empty topic = disabled.
     NTFY_SERVER: 'https://ntfy.sh',
     NTFY_TOPIC: '',

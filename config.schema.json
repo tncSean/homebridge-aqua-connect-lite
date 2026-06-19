@@ -74,6 +74,8 @@
           "cya_green_min":  { "title": "CYA green band min (ppm)", "type": "integer", "default": 50 },
           "cya_green_max":  { "title": "CYA green band max (ppm)", "type": "integer", "default": 80 },
           "cya_current_ppm": { "title": "Current CYA (ppm) — manual; 0 = unknown (tile shows Unknown)", "type": "integer", "default": 0 },
+          "cya_target_ppm": { "title": "CYA dose target (ppm)", "type": "integer", "default": 40,
+                              "description": "Conservative in-band target used to compute the stabilizer dose when CYA is low. CYA can only be lowered by dilution, so keep this modest." },
           "ntfy_server":    { "title": "ntfy server URL", "type": "string", "default": "https://ntfy.sh",
                               "description": "Base URL of the ntfy server for compliance push notifications." },
           "ntfy_topic":     { "title": "ntfy topic (blank = disabled)", "type": "string", "default": "",

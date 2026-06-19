@@ -11,6 +11,8 @@ export interface OutOfRangeParam {
     value: number;
     unit: string;
     band: Band;
+    /** Optional actionable dose, e.g. "add ~6.5 lbs stabilizer" — appended as "→ ...". */
+    advice?: string;
 }
 
 export interface ChemNotificationInput {
@@ -24,10 +26,14 @@ export interface ChemNotification {
     body: string;
 }
 
-/** "Salt 2900 ppm low (target 3000–3600)" — value, unit, direction, target band. */
+/**
+ * "Salt 2900 ppm low (target 3000–3600)" — value, unit, direction, target band.
+ * With advice: "CYA 14 ppm low (target 30–100) → add ~6.5 lbs stabilizer".
+ */
 function describe(p: OutOfRangeParam): string {
     const direction = p.value < p.band.min ? 'low' : 'high';
-    return `${p.name} ${p.value} ${p.unit} ${direction} (target ${p.band.min}–${p.band.max})`;
+    const base = `${p.name} ${p.value} ${p.unit} ${direction} (target ${p.band.min}–${p.band.max})`;
+    return p.advice ? `${base} → ${p.advice}` : base;
 }
 
 /** Concise "; "-joined list of out-of-range params. */

@@ -1,6 +1,6 @@
 /** Unit tests for the PURE next-best-action advisor. No I/O. */
 import * as assert from 'node:assert';
-import { nextBestAction, saltDoseLbs, NextActionInput } from './nextaction';
+import { nextBestAction, saltDoseLbs, cyaDoseLbs, NextActionInput } from './nextaction';
 
 let passed = 0;
 function test(name: string, fn: () => void): void {
@@ -69,6 +69,25 @@ test('missing config (poolGallons undefined) → no action, no throw', () => {
 test('saltDoseLbs returns 0 when current >= target', () => {
     assert.strictEqual(saltDoseLbs(3400, 3400, 31400), 0);
     assert.strictEqual(saltDoseLbs(3600, 3400, 31400), 0);
+});
+
+test('cyaDoseLbs 14→40 @ 31400 gal ≈ 6.5 lbs', () => {
+    // (31400/10000) * ((40-14)/10) * 0.8 = 3.14 * 2.6 * 0.8 = 6.5312 → 6.5
+    assert.strictEqual(cyaDoseLbs(14, 40, 31400), 6.5);
+});
+
+test('cyaDoseLbs at/above target → 0', () => {
+    assert.strictEqual(cyaDoseLbs(40, 40, 31400), 0);
+    assert.strictEqual(cyaDoseLbs(55, 40, 31400), 0);
+});
+
+test('cyaDoseLbs rounds to nearest 0.5', () => {
+    // 20→30 @ 10000 gal: (1) * (1) * 0.8 = 0.8 → 1.0 (nearest 0.5)
+    assert.strictEqual(cyaDoseLbs(20, 30, 10000), 1.0);
+    // 0→30 @ 10000 gal: (1) * (3) * 0.8 = 2.4 → 2.5
+    assert.strictEqual(cyaDoseLbs(0, 30, 10000), 2.5);
+    // 0→20 @ 10000 gal: (1) * (2) * 0.8 = 1.6 → 1.5
+    assert.strictEqual(cyaDoseLbs(0, 20, 10000), 1.5);
 });
 
 // eslint-disable-next-line no-console

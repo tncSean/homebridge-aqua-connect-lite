@@ -17,7 +17,7 @@ import { Chlorinator } from '../chlorinator';
 import { WaterGuruClient, WgReading } from './client';
 import { computeTargetPct, ControlParams } from './control';
 import { evaluateRedFlags, RedFlagInput } from './redflag';
-import { nextBestAction } from './nextaction';
+import { nextBestAction, cyaDoseLbs } from './nextaction';
 import { GenerationTracker } from './generation-tracker';
 import { ChlorineSensor } from './chlorinesensor';
 import { PhSensor } from './phsensor';
@@ -54,6 +54,8 @@ export interface ControllerConfig extends ControlParams {
     cyaGreenMax: number;
     /** Manual CYA reading (ppm); 0 = unknown → tile shows Unknown. */
     cyaCurrentPpm: number;
+    /** CYA dose target (ppm) — conservative in-band target for the stabilizer dose. */
+    cyaTargetPpm: number;
     /** ntfy push config. Empty topic = disabled. */
     ntfyServer: string;
     ntfyTopic: string;
@@ -180,9 +182,19 @@ export class WaterGuruController {
         chem.push({ name: 'CYA', value: cyaValue, unit: 'ppm', band: cyaBand });
 
         // Out-of-range params (value defined AND outside its band) for the push.
+        // CYA gets an actionable dose when it's below the band min (CYA can only
+        // be removed by dilution, so we never advise reducing it). Salt stays the
+        // NBA headline; no other param needs a dose right now.
         const outOfRange: OutOfRangeParam[] = chem
             .filter(p => isOutOfRange(p.value, p.band))
-            .map(p => ({ name: p.name, value: p.value as number, unit: p.unit, band: p.band }));
+            .map(p => {
+                const item: OutOfRangeParam = { name: p.name, value: p.value as number, unit: p.unit, band: p.band };
+                if (p.name === 'CYA' && (p.value as number) < p.band.min && this.cfg.poolGallons !== undefined) {
+                    const lbs = cyaDoseLbs(p.value as number, this.cfg.cyaTargetPpm, this.cfg.poolGallons);
+                    if (lbs > 0) item.advice = `add ~${lbs} lbs stabilizer`;
+                }
+                return item;
+            });
 
         // History bookkeeping.
         if (reading.fc !== undefined) push(this.fcHistory, reading.fc, HISTORY_DAYS);

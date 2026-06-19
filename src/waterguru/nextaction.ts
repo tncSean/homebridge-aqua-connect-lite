@@ -36,6 +36,17 @@ export function saltDoseLbs(currentPpm: number, targetPpm: number, gallons: numb
     return Math.round(lbs / 5) * 5;
 }
 
+/**
+ * Cyanuric acid (stabilizer) dose (lbs) to raise current->target for the given
+ * volume. Pure. Coefficient ~0.8 lb raises CYA ~10 ppm per 10k gal. Rounded to
+ * the nearest 0.5 lb; 0 when target <= current (CYA is only removed by dilution).
+ */
+export function cyaDoseLbs(currentPpm: number, targetPpm: number, gallons: number): number {
+    if (targetPpm <= currentPpm) return 0;
+    const lbs = (gallons / 10000) * ((targetPpm - currentPpm) / 10) * 0.8;
+    return Math.round(lbs * 2) / 2;
+}
+
 /** Single highest-priority foundational action. Extensible (salt is the only rung today). */
 export function nextBestAction(input: NextActionInput): NextAction {
     const none: NextAction = {

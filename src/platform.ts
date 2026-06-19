@@ -223,6 +223,7 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
                 cyaGreenMin: num(raw.cya_green_min, CHLORINE_CONTROLLER_DEFAULTS.CYA_GREEN_MIN),
                 cyaGreenMax: num(raw.cya_green_max, CHLORINE_CONTROLLER_DEFAULTS.CYA_GREEN_MAX),
                 cyaCurrentPpm: num(raw.cya_current_ppm, CHLORINE_CONTROLLER_DEFAULTS.CYA_CURRENT_PPM),
+                cyaTargetPpm: num(raw.cya_target_ppm, CHLORINE_CONTROLLER_DEFAULTS.CYA_TARGET_PPM),
                 ntfyServer: typeof raw.ntfy_server === 'string' && raw.ntfy_server.length > 0
                     ? raw.ntfy_server : CHLORINE_CONTROLLER_DEFAULTS.NTFY_SERVER,
                 ntfyTopic: typeof raw.ntfy_topic === 'string' ? raw.ntfy_topic : CHLORINE_CONTROLLER_DEFAULTS.NTFY_TOPIC,
