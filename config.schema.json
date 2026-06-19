@@ -61,7 +61,23 @@
           "pool_gallons":      { "title": "Pool volume (gallons)", "type": "integer", "default": 31400 },
           "salt_current_ppm":  { "title": "Current salt (ppm) — last known; update after adding salt", "type": "integer", "default": 2900 },
           "salt_target_ppm":   { "title": "Target salt (ppm)", "type": "integer", "default": 3400 },
-          "salt_deadband_ppm": { "title": "Salt deadband (ppm) — don't prompt within this margin", "type": "integer", "default": 150 }
+          "salt_deadband_ppm": { "title": "Salt deadband (ppm) — don't prompt within this margin", "type": "integer", "default": 150 },
+          "salt_green_min": { "title": "Salt green band min (ppm)", "type": "integer", "default": 3000 },
+          "salt_green_max": { "title": "Salt green band max (ppm)", "type": "integer", "default": 3600 },
+          "ph_green_min":   { "title": "pH green band min", "type": "number", "default": 7.2 },
+          "ph_green_max":   { "title": "pH green band max", "type": "number", "default": 7.8 },
+          "fc_green_min":   { "title": "Free Chlorine green band min (ppm)", "type": "number", "default": 2,
+                              "description": "Fallback FC band when Water Guru does not supply a recommended range." },
+          "fc_green_max":   { "title": "Free Chlorine green band max (ppm)", "type": "number", "default": 4 },
+          "ta_green_min":   { "title": "Total Alkalinity green band min (ppm)", "type": "integer", "default": 80 },
+          "ta_green_max":   { "title": "Total Alkalinity green band max (ppm)", "type": "integer", "default": 120 },
+          "cya_green_min":  { "title": "CYA green band min (ppm)", "type": "integer", "default": 50 },
+          "cya_green_max":  { "title": "CYA green band max (ppm)", "type": "integer", "default": 80 },
+          "cya_current_ppm": { "title": "Current CYA (ppm) — manual; 0 = unknown (tile shows Unknown)", "type": "integer", "default": 0 },
+          "ntfy_server":    { "title": "ntfy server URL", "type": "string", "default": "https://ntfy.sh",
+                              "description": "Base URL of the ntfy server for compliance push notifications." },
+          "ntfy_topic":     { "title": "ntfy topic (blank = disabled)", "type": "string", "default": "",
+                              "description": "ntfy topic to publish to. Leave blank to disable push notifications." }
         }
       },
       "super_chlorinate_key": {
@@ -97,7 +113,10 @@
             "Air Temp",
             "Free Chlorine",
             "pH",
-            "Pool Alert"
+            "Pool Alert",
+            "Salt",
+            "Total Alkalinity",
+            "CYA"
           ]
         }
       },

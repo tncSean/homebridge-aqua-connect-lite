@@ -1,25 +1,24 @@
-import { Service, PlatformAccessory } from 'homebridge';
+import { PlatformAccessory } from 'homebridge';
 import { AquaConnectLitePlatform } from '../platform';
+import { ChemistrySensor } from './chemistrysensor';
+import { Band } from './compliance';
 
 /**
- * Free Chlorine sensor (ppm). HomeKit has no chlorine characteristic, so we
- * reuse LightSensor.CurrentAmbientLightLevel as a generic numeric carrier
- * (mirrors jkoehl/homebridge-waterguru). Lux min is >0 so FC is clamped to
- * >= 0.0001. Value is pushed by the controller via setFc().
+ * Free Chlorine (ppm) compliance tile. Delegates to ChemistrySensor, which
+ * backs it with a HomeKit AirQualitySensor showing the color-coded compliance
+ * state against the WG-recommended (or configured) green band. The exact ppm
+ * is delivered via the controller log + ntfy push.
+ *
+ * NOTE: this swaps the underlying service LightSensor → AirQuality on the SAME
+ * accessory (stable TYPE/NAME/UUID — no re-register). Apple Home may need a
+ * reload to show the new compliance state; identity/room are preserved.
  */
 export class ChlorineSensor {
-    private service: Service;
-    constructor(
-        private readonly platform: AquaConnectLitePlatform,
-        private readonly accessory: PlatformAccessory,
-    ) {
-        this.service = this.accessory.getService(this.platform.Service.LightSensor)
-            || this.accessory.addService(this.platform.Service.LightSensor);
-        this.service.setCharacteristic(this.platform.Characteristic.Name, this.accessory.displayName);
+    private chem: ChemistrySensor;
+    constructor(platform: AquaConnectLitePlatform, accessory: PlatformAccessory) {
+        this.chem = new ChemistrySensor(platform, accessory, { unit: 'ppm' });
     }
-    setFc(ppm: number): void {
-        const v = Math.max(0.0001, ppm);
-        this.service.updateCharacteristic(this.platform.Characteristic.CurrentAmbientLightLevel, v);
-        this.platform.log.debug(`${this.accessory.displayName} FC=${ppm}ppm`);
+    setFc(ppm: number, band: Band): void {
+        this.chem.update(ppm, band);
     }
 }

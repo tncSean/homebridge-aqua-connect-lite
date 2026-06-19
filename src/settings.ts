@@ -31,6 +31,22 @@ export const CHLORINE_CONTROLLER_DEFAULTS = {
     SALT_CURRENT_PPM: 2900,
     SALT_TARGET_PPM: 3400,
     SALT_DEADBAND_PPM: 150,
+    // Compliance green bands (per-parameter [min, max]) for the chemistry tiles.
+    SALT_GREEN_MIN: 3000,
+    SALT_GREEN_MAX: 3600,
+    PH_GREEN_MIN: 7.2,
+    PH_GREEN_MAX: 7.8,
+    FC_GREEN_MIN: 2,
+    FC_GREEN_MAX: 4,
+    TA_GREEN_MIN: 80,
+    TA_GREEN_MAX: 120,
+    CYA_GREEN_MIN: 50,
+    CYA_GREEN_MAX: 80,
+    // Manual CYA reading (ppm). 0 = unknown → the CYA tile shows Unknown.
+    CYA_CURRENT_PPM: 0,
+    // ntfy push. Empty topic = disabled.
+    NTFY_SERVER: 'https://ntfy.sh',
+    NTFY_TOPIC: '',
 };
 
 /** Default AquaLogic (W610 bus bridge) connection settings */
@@ -68,6 +84,9 @@ export const ACCESSORY_TYPE = {
     CHLORINE_SENSOR: 'chlorinesensor' as const,
     PH_SENSOR: 'phsensor' as const,
     POOL_ALERT: 'poolalert' as const,
+    SALT_SENSOR: 'saltsensor' as const,
+    TA_SENSOR: 'tasensor' as const,
+    CYA_SENSOR: 'cyasensor' as const,
 };
 
 export type AccessoryType = typeof ACCESSORY_TYPE[keyof typeof ACCESSORY_TYPE];
@@ -199,6 +218,22 @@ export const ACCESSORIES: AccessoryConfig[] = [
     {
         NAME: 'Pool Alert',
         TYPE: ACCESSORY_TYPE.POOL_ALERT,
+        TRANSPORT: 'aqualogic',
+    } as AquaLogicAccessoryConfig,
+    // --- Chemistry compliance tiles (v3.7; only instantiated when WG creds present) ---
+    {
+        NAME: 'Salt',
+        TYPE: ACCESSORY_TYPE.SALT_SENSOR,
+        TRANSPORT: 'aqualogic',
+    } as AquaLogicAccessoryConfig,
+    {
+        NAME: 'Total Alkalinity',
+        TYPE: ACCESSORY_TYPE.TA_SENSOR,
+        TRANSPORT: 'aqualogic',
+    } as AquaLogicAccessoryConfig,
+    {
+        NAME: 'CYA',
+        TYPE: ACCESSORY_TYPE.CYA_SENSOR,
         TRANSPORT: 'aqualogic',
     } as AquaLogicAccessoryConfig,
 ];

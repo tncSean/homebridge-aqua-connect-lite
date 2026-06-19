@@ -22,6 +22,10 @@ import { GenerationTracker } from './generation-tracker';
 import { ChlorineSensor } from './chlorinesensor';
 import { PhSensor } from './phsensor';
 import { PoolAlert } from './poolalert';
+import { ChemistrySensor } from './chemistrysensor';
+import { Band } from './compliance';
+import { Notifier } from './notifier';
+import { buildChemNotification, OutOfRangeParam, isOutOfRange } from './notifysummary';
 
 export interface ControllerConfig extends ControlParams {
     enabled: boolean;
@@ -37,6 +41,32 @@ export interface ControllerConfig extends ControlParams {
     saltTargetPpm?: number;
     /** Salt deadband (ppm) — don't prompt within this margin of target. */
     saltDeadbandPpm?: number;
+    /** Compliance green bands (per-parameter) for the chemistry tiles. */
+    saltGreenMin: number;
+    saltGreenMax: number;
+    phGreenMin: number;
+    phGreenMax: number;
+    fcGreenMin: number;
+    fcGreenMax: number;
+    taGreenMin: number;
+    taGreenMax: number;
+    cyaGreenMin: number;
+    cyaGreenMax: number;
+    /** Manual CYA reading (ppm); 0 = unknown → tile shows Unknown. */
+    cyaCurrentPpm: number;
+    /** ntfy push config. Empty topic = disabled. */
+    ntfyServer: string;
+    ntfyTopic: string;
+}
+
+/** HomeKit sensor tiles the controller drives. All optional (creds/config gated). */
+export interface ControllerSensors {
+    chlorine?: ChlorineSensor;
+    ph?: PhSensor;
+    salt?: ChemistrySensor;
+    ta?: ChemistrySensor;
+    cya?: ChemistrySensor;
+    alert?: PoolAlert;
 }
 
 const HISTORY_DAYS = 7;
@@ -53,8 +83,9 @@ export class WaterGuruController {
         private readonly wg: WaterGuruClient,
         private readonly aqua: AquaLogicClient,
         private readonly chlorinator: Chlorinator | null,
-        private readonly sensors: { chlorine?: ChlorineSensor; ph?: PhSensor; alert?: PoolAlert },
+        private readonly sensors: ControllerSensors,
         private readonly cfg: ControllerConfig,
+        private readonly notifier: Notifier | null = null,
     ) {
         // Feed the generation tracker from live RS-485 state changes.
         this.aqua.state.on('change', (key: keyof PoolState) => {
@@ -110,9 +141,42 @@ export class WaterGuruController {
             return; // never adjust on stale data
         }
 
-        // Update tiles from fresh chemistry.
-        if (reading.fc !== undefined) this.sensors.chlorine?.setFc(reading.fc);
-        if (reading.ph !== undefined) this.sensors.ph?.setPh(reading.ph);
+        // Update all chemistry compliance tiles from fresh chemistry. Each tile
+        // shows a color-coded compliance state vs. its green band; the exact
+        // value/instruction is delivered via the log + the optional ntfy push.
+        // As we push each tile we collect (name, value, unit, band) so a single
+        // batched notification can name every out-of-range param this run.
+        const chem: Array<{ name: string; value: number | undefined; unit: string; band: Band }> = [];
+
+        // Prefer the WG-recommended FC band when present; else the config band.
+        const fcBand: Band = reading.fcRange
+            ? { min: reading.fcRange[0], max: reading.fcRange[1] }
+            : { min: this.cfg.fcGreenMin, max: this.cfg.fcGreenMax };
+        if (reading.fc !== undefined) this.sensors.chlorine?.setFc(reading.fc, fcBand);
+        chem.push({ name: 'Free Chlorine', value: reading.fc, unit: 'ppm', band: fcBand });
+
+        const phBand: Band = { min: this.cfg.phGreenMin, max: this.cfg.phGreenMax };
+        if (reading.ph !== undefined) this.sensors.ph?.setPh(reading.ph, phBand);
+        chem.push({ name: 'pH', value: reading.ph, unit: 'pH', band: phBand });
+
+        const taBand: Band = { min: this.cfg.taGreenMin, max: this.cfg.taGreenMax };
+        if (reading.ta !== undefined) this.sensors.ta?.update(reading.ta, taBand);
+        chem.push({ name: 'Total Alkalinity', value: reading.ta, unit: 'ppm', band: taBand });
+
+        // Salt + CYA are manual config values (not on RS-485/WG). 0 CYA = unknown.
+        const saltBand: Band = { min: this.cfg.saltGreenMin, max: this.cfg.saltGreenMax };
+        this.sensors.salt?.update(this.cfg.saltCurrentPpm, saltBand);
+        chem.push({ name: 'Salt', value: this.cfg.saltCurrentPpm, unit: 'ppm', band: saltBand });
+
+        const cyaBand: Band = { min: this.cfg.cyaGreenMin, max: this.cfg.cyaGreenMax };
+        const cyaValue = this.cfg.cyaCurrentPpm > 0 ? this.cfg.cyaCurrentPpm : undefined;
+        this.sensors.cya?.update(cyaValue, cyaBand);
+        chem.push({ name: 'CYA', value: cyaValue, unit: 'ppm', band: cyaBand });
+
+        // Out-of-range params (value defined AND outside its band) for the push.
+        const outOfRange: OutOfRangeParam[] = chem
+            .filter(p => isOutOfRange(p.value, p.band))
+            .map(p => ({ name: p.name, value: p.value as number, unit: p.unit, band: p.band }));
 
         // History bookkeeping.
         if (reading.fc !== undefined) push(this.fcHistory, reading.fc, HISTORY_DAYS);
@@ -156,12 +220,28 @@ export class WaterGuruController {
         // and supersedes red-flags for this run. Otherwise, evaluate red-flags as
         // usual (always, even startup, so an offline pod surfaces fast).
         if (nba.active) {
-            this.sensors.alert?.raise(nba.message, nba.tileName);
+            this.sensors.alert?.raise(nba.message);
         } else {
             const snap = this.tracker.snapshot(Date.now());
             const rf = evaluateRedFlags(this.redflagInput(reading, snap.noFlowFraction));
             if (rf.active) this.sensors.alert?.raise(rf.reason);
             else this.sensors.alert?.clear();
+        }
+
+        // ONE batched push per run (single 'chem' dedupe key) naming the
+        // foundational action AND every out-of-range param — never spam.
+        // Best-effort: a notify failure must never break the run.
+        const note = buildChemNotification({
+            nbaActive: nba.active,
+            nbaMessage: nba.message,
+            outOfRange,
+        });
+        if (note) {
+            try {
+                await this.notifier?.maybeNotify('chem', note.title, note.body);
+            } catch (e) {
+                this.platform.log.warn(`ntfy push (chem) failed: ${(e as Error).message}`);
+            }
         }
 
         // Roll the generation accumulator over at the daily mark.

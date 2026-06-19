@@ -1,23 +1,23 @@
-import { Service, PlatformAccessory } from 'homebridge';
+import { PlatformAccessory } from 'homebridge';
 import { AquaConnectLitePlatform } from '../platform';
+import { ChemistrySensor } from './chemistrysensor';
+import { Band } from './compliance';
 
 /**
- * pH sensor. Same generic-numeric approach as ChlorineSensor — pH (~6.8-8.2)
- * sits inside the LightSensor lux range. Pushed by the controller via setPh().
+ * pH compliance tile. Delegates to ChemistrySensor (HomeKit AirQualitySensor)
+ * showing the color-coded compliance state against the configured green band.
+ * The exact pH is delivered via the controller log + ntfy push.
+ *
+ * NOTE: this swaps the underlying service LightSensor → AirQuality on the SAME
+ * accessory (stable TYPE/NAME/UUID — no re-register). Apple Home may need a
+ * reload to show the new compliance state; identity/room are preserved.
  */
 export class PhSensor {
-    private service: Service;
-    constructor(
-        private readonly platform: AquaConnectLitePlatform,
-        private readonly accessory: PlatformAccessory,
-    ) {
-        this.service = this.accessory.getService(this.platform.Service.LightSensor)
-            || this.accessory.addService(this.platform.Service.LightSensor);
-        this.service.setCharacteristic(this.platform.Characteristic.Name, this.accessory.displayName);
+    private chem: ChemistrySensor;
+    constructor(platform: AquaConnectLitePlatform, accessory: PlatformAccessory) {
+        this.chem = new ChemistrySensor(platform, accessory, { unit: 'pH' });
     }
-    setPh(ph: number): void {
-        const v = Math.max(0.0001, ph);
-        this.service.updateCharacteristic(this.platform.Characteristic.CurrentAmbientLightLevel, v);
-        this.platform.log.debug(`${this.accessory.displayName} pH=${ph}`);
+    setPh(ph: number, band: Band): void {
+        this.chem.update(ph, band);
     }
 }

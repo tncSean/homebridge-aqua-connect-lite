@@ -11,6 +11,8 @@ import { AquaLogicClient } from './aqualogic/client';
 import { ChlorineSensor } from './waterguru/chlorinesensor';
 import { PhSensor } from './waterguru/phsensor';
 import { PoolAlert } from './waterguru/poolalert';
+import { ChemistrySensor } from './waterguru/chemistrysensor';
+import { Notifier } from './waterguru/notifier';
 import { WaterGuruClient } from './waterguru/client';
 import { WaterGuruController, ControllerConfig } from './waterguru/controller';
 
@@ -35,6 +37,9 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
     private chlorineSensor: ChlorineSensor | null = null;
     private phSensor: PhSensor | null = null;
     private poolAlert: PoolAlert | null = null;
+    private saltSensor: ChemistrySensor | null = null;
+    private taSensor: ChemistrySensor | null = null;
+    private cyaSensor: ChemistrySensor | null = null;
     private chlorinatorAccessory: Chlorinator | null = null;
 
     constructor(
@@ -105,7 +110,7 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
         const wgPassword = typeof this.config.waterguru_password === 'string' ? this.config.waterguru_password : '';
         const wgEnabled = wgEmail.length > 0 && wgPassword.length > 0;
         if (!wgEnabled) {
-            for (const n of ['Free Chlorine', 'pH', 'Pool Alert']) {
+            for (const n of ['Free Chlorine', 'pH', 'Pool Alert', 'Salt', 'Total Alkalinity', 'CYA']) {
                 if (!excluded.includes(n)) excluded.push(n);
             }
             this.log.info('Water Guru credentials absent — chlorine auto-tuner disabled (plugin behaves as before).');
@@ -207,13 +212,39 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
                 saltCurrentPpm: num(raw.salt_current_ppm, CHLORINE_CONTROLLER_DEFAULTS.SALT_CURRENT_PPM),
                 saltTargetPpm: num(raw.salt_target_ppm, CHLORINE_CONTROLLER_DEFAULTS.SALT_TARGET_PPM),
                 saltDeadbandPpm: num(raw.salt_deadband_ppm, CHLORINE_CONTROLLER_DEFAULTS.SALT_DEADBAND_PPM),
+                saltGreenMin: num(raw.salt_green_min, CHLORINE_CONTROLLER_DEFAULTS.SALT_GREEN_MIN),
+                saltGreenMax: num(raw.salt_green_max, CHLORINE_CONTROLLER_DEFAULTS.SALT_GREEN_MAX),
+                phGreenMin: num(raw.ph_green_min, CHLORINE_CONTROLLER_DEFAULTS.PH_GREEN_MIN),
+                phGreenMax: num(raw.ph_green_max, CHLORINE_CONTROLLER_DEFAULTS.PH_GREEN_MAX),
+                fcGreenMin: num(raw.fc_green_min, CHLORINE_CONTROLLER_DEFAULTS.FC_GREEN_MIN),
+                fcGreenMax: num(raw.fc_green_max, CHLORINE_CONTROLLER_DEFAULTS.FC_GREEN_MAX),
+                taGreenMin: num(raw.ta_green_min, CHLORINE_CONTROLLER_DEFAULTS.TA_GREEN_MIN),
+                taGreenMax: num(raw.ta_green_max, CHLORINE_CONTROLLER_DEFAULTS.TA_GREEN_MAX),
+                cyaGreenMin: num(raw.cya_green_min, CHLORINE_CONTROLLER_DEFAULTS.CYA_GREEN_MIN),
+                cyaGreenMax: num(raw.cya_green_max, CHLORINE_CONTROLLER_DEFAULTS.CYA_GREEN_MAX),
+                cyaCurrentPpm: num(raw.cya_current_ppm, CHLORINE_CONTROLLER_DEFAULTS.CYA_CURRENT_PPM),
+                ntfyServer: typeof raw.ntfy_server === 'string' && raw.ntfy_server.length > 0
+                    ? raw.ntfy_server : CHLORINE_CONTROLLER_DEFAULTS.NTFY_SERVER,
+                ntfyTopic: typeof raw.ntfy_topic === 'string' ? raw.ntfy_topic : CHLORINE_CONTROLLER_DEFAULTS.NTFY_TOPIC,
             };
             if (cfg.enabled) {
                 const wgClient = new WaterGuruClient(wgEmail, wgPassword, this.log);
+                const notifier = new Notifier(
+                    { ntfyServer: cfg.ntfyServer, ntfyTopic: cfg.ntfyTopic || undefined },
+                    this.log, () => Date.now(), fetch,
+                );
                 this.wgController = new WaterGuruController(
                     this, wgClient, this.aquaLogicClient, this.chlorinatorAccessory,
-                    { chlorine: this.chlorineSensor ?? undefined, ph: this.phSensor ?? undefined, alert: this.poolAlert ?? undefined },
+                    {
+                        chlorine: this.chlorineSensor ?? undefined,
+                        ph: this.phSensor ?? undefined,
+                        salt: this.saltSensor ?? undefined,
+                        ta: this.taSensor ?? undefined,
+                        cya: this.cyaSensor ?? undefined,
+                        alert: this.poolAlert ?? undefined,
+                    },
                     cfg,
+                    notifier,
                 );
                 this.wgController.start();
                 this.log.info(`Chlorine auto-tuner started (run_at ${cfg.runAt}, compute_only=${cfg.computeOnly}, max ${cfg.maxPct}%).`);
@@ -254,6 +285,15 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
                 return;
             case ACCESSORY_TYPE.POOL_ALERT:
                 this.poolAlert = new PoolAlert(this, platformAccessory);
+                return;
+            case ACCESSORY_TYPE.SALT_SENSOR:
+                this.saltSensor = new ChemistrySensor(this, platformAccessory, { unit: 'ppm' });
+                return;
+            case ACCESSORY_TYPE.TA_SENSOR:
+                this.taSensor = new ChemistrySensor(this, platformAccessory, { unit: 'ppm' });
+                return;
+            case ACCESSORY_TYPE.CYA_SENSOR:
+                this.cyaSensor = new ChemistrySensor(this, platformAccessory, { unit: 'ppm' });
                 return;
             case ACCESSORY_TYPE.FAN:
                 this.requireClient(cfg.NAME);
