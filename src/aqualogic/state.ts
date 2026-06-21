@@ -98,6 +98,20 @@ export class PoolStateStore extends EventEmitter {
         }
     }
 
+    /**
+     * Authoritatively set the Super Chlorinate on/off state. The passive
+     * display parser can only ever set this TRUE (it matches the
+     * "Super Chlorinate" screen text and never sees an explicit "off"
+     * frame during normal auto-cycle), so it is a write-only latch on its
+     * own. The SuperChlor accessory navigates to the Super Chlorinate
+     * settings screen, reads the actual on/off value, and calls this to
+     * record the truth — including clearing back to FALSE when the owner
+     * (or HomeKit) turns it off. This is the only path that can lower the flag.
+     */
+    setSuperChlorinate(on: boolean): void {
+        this.setField('superChlorinateOn', on);
+    }
+
     private ingestDisplayPayload(payload: Buffer): void {
         // Both DISPLAY_UPDATE and LONG_DISPLAY_UPDATE contain ASCII display
         // text, sometimes prefixed with a short binary preamble. We scan for

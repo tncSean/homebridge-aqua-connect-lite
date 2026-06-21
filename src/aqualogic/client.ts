@@ -395,6 +395,92 @@ export class AquaLogicClient extends EventEmitter {
         await this.sendKeyRepeated(key, Math.abs(delta));
     }
 
+    // --- shared Settings-menu navigation -------------------------------------
+    //
+    // The Pro Logic exposes a SINGLE unlocked "Settings Menu" whose items
+    // (Heater1 → VSP → Super Chlorinate → Pool Chlorinator → Set Day/Time →
+    // Display Light → wrap) are reached by MENU-burst to the menu then
+    // RIGHT-burst through items. Multiple accessories (Chlorinator, Super
+    // Chlorinate, future thermostat) all walk the SAME physical menu, so they
+    // MUST NOT navigate concurrently — interleaved MENU/RIGHT bursts from two
+    // callers would land the panel on the wrong (possibly EDITABLE) item and
+    // corrupt an unrelated setting. `withMenuLock` serializes all menu sessions
+    // across every accessory through one async mutex.
+
+    /** Tail of the menu-session promise chain. Each acquirer awaits the
+     *  previous session, runs, then releases the next. */
+    private menuLockTail: Promise<void> = Promise.resolve();
+
+    /**
+     * Run `fn` with EXCLUSIVE access to the Settings menu. Serializes against
+     * every other `withMenuLock` caller (chlorinator, super-chlorinate, …) so
+     * only one accessory drives the panel's menu at a time. The lock is always
+     * released, even if `fn` throws, and `fn`'s result/rejection propagates to
+     * the caller unchanged.
+     */
+    async withMenuLock<T>(label: string, fn: () => Promise<T>): Promise<T> {
+        const prev = this.menuLockTail;
+        let release!: () => void;
+        // Replace the tail with a promise that resolves when THIS session ends,
+        // so the next acquirer queues behind us.
+        this.menuLockTail = new Promise<void>(r => { release = r; });
+        await prev;
+        this.log.debug(`menu lock acquired: ${label}`);
+        try {
+            return await fn();
+        } finally {
+            this.log.debug(`menu lock released: ${label}`);
+            release();
+        }
+    }
+
+    /** True when the latest display text matches `re`. The single source of
+     *  truth for menu position — what the panel is currently showing. */
+    displayMatches(re: RegExp): boolean {
+        const t = this.state.current.lastDisplayText;
+        return typeof t === 'string' && re.test(t);
+    }
+
+    /**
+     * Burst `key` repeatedly until the display matches `re`, or `maxTries`
+     * bursts are exhausted. Shared nav primitive for all menu-driving
+     * accessories. Send errors are swallowed (readback is the success check).
+     * MUST be called inside a `withMenuLock` session.
+     *
+     * @returns whether the display matched `re`.
+     */
+    private static readonly NAV_BURST_MS = 200;
+    private static readonly NAV_SETTLE_MS = 1500;
+    private static readonly NAV_POLL_MS = 50;
+    async navigatePressUntil(
+        key: KeyValue,
+        re: RegExp,
+        maxTries: number,
+        burstMs = AquaLogicClient.NAV_BURST_MS,
+        settleMs = AquaLogicClient.NAV_SETTLE_MS,
+    ): Promise<boolean> {
+        for (let i = 1; i <= maxTries; i++) {
+            if (this.displayMatches(re)) return true;
+            try {
+                await this.sendWiredKeyBurst(key, burstMs);
+            } catch (e) {
+                this.log.debug(`nav burst send failed: ${(e as Error).message}`);
+            }
+            if (await this.waitForDisplay(re, settleMs)) return true;
+        }
+        return this.displayMatches(re);
+    }
+
+    /** Wait up to `ms` for the display to match `re`. */
+    async waitForDisplay(re: RegExp, ms: number): Promise<boolean> {
+        const deadline = Date.now() + ms;
+        while (Date.now() < deadline) {
+            if (this.displayMatches(re)) return true;
+            await sleep(AquaLogicClient.NAV_POLL_MS);
+        }
+        return this.displayMatches(re);
+    }
+
     // --- connection management ------------------------------------------------
 
     /**

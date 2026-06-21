@@ -119,6 +119,8 @@ export class Chlorinator {
     }
 
     private async setOn(value: CharacteristicValue): Promise<void> {
+        // DIAGNOSTIC: capture exactly what the Home app sends.
+        this.platform.log.info(`Chlorinator HomeKit ON set → ${JSON.stringify(value)}`);
         // Turning "off" means drive percent to 0 via the same keypress path.
         // Turning "on" with a previous percent just re-asserts HomeKit state —
         // HomeKit will also call setBrightness for a real value.
@@ -128,6 +130,9 @@ export class Chlorinator {
     }
 
     private async setBrightness(value: CharacteristicValue): Promise<void> {
+        // DIAGNOSTIC: capture the raw Brightness value the Home app sends, before
+        // clamp/round, so we can tell a plugin bug from a Home-app interaction.
+        this.platform.log.info(`Chlorinator HomeKit BRIGHTNESS set → ${JSON.stringify(value)}`);
         const target = clamp(Math.round(value as number), 0, 100);
         await this.queueBrightness(target);
     }
@@ -172,7 +177,10 @@ export class Chlorinator {
         this.pendingTarget = null;
         this.writing = true;
         try {
-            await this.driveTo(target);
+            // Acquire the shared Settings-menu lock so we never interleave
+            // MENU/RIGHT bursts with the Super Chlorinate accessory (they walk
+            // the SAME physical menu — concurrent nav would corrupt a setting).
+            await this.client.withMenuLock('chlorinator', () => this.driveTo(target));
         } catch (e) {
             this.platform.log.error(`${this.accessory.displayName} adjust failed: ${(e as Error).message}`);
         } finally {
