@@ -74,6 +74,38 @@ test('advice rides along under the nba "; also" suffix too', () => {
     );
 });
 
+test('HIGH salt → "do not add; dilute" advice present, no "add" wording', () => {
+    const i = base();
+    i.outOfRange = [
+        {
+            name: 'Salt', value: 4229, unit: 'ppm', band: { min: 3000, max: 3600 },
+            advice: 'above ideal — do not add; lower with a partial water change',
+        },
+    ];
+    const r = buildChemNotification(i);
+    assert.ok(r);
+    assert.strictEqual(
+        r!.body,
+        'Salt 4229 ppm high (target 3000–3600) → above ideal — do not add; lower with a partial water change',
+    );
+    assert.ok(!/\badd \d/.test(r!.body)); // no "add <number>" dosing wording
+});
+
+test('STALE low salt → "not recommending until fresh test" advice present', () => {
+    const i = base();
+    i.outOfRange = [
+        {
+            name: 'Salt', value: 2900, unit: 'ppm', band: { min: 3000, max: 3600 },
+            advice: 'reading 31d old — not recommending salt until a fresh test',
+        },
+    ];
+    const r = buildChemNotification(i);
+    assert.strictEqual(
+        r!.body,
+        'Salt 2900 ppm low (target 3000–3600) → reading 31d old — not recommending salt until a fresh test',
+    );
+});
+
 test('all good (no nba, empty list) → null', () => {
     assert.strictEqual(buildChemNotification(base()), null);
 });

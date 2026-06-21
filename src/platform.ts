@@ -231,6 +231,7 @@ export class AquaConnectLitePlatform implements DynamicPlatformPlugin {
                 saltCurrentPpm: num(raw.salt_current_ppm, CHLORINE_CONTROLLER_DEFAULTS.SALT_CURRENT_PPM),
                 saltTargetPpm: num(raw.salt_target_ppm, CHLORINE_CONTROLLER_DEFAULTS.SALT_TARGET_PPM),
                 saltDeadbandPpm: num(raw.salt_deadband_ppm, CHLORINE_CONTROLLER_DEFAULTS.SALT_DEADBAND_PPM),
+                saltMaxAgeDays: num(raw.salt_max_age_days, CHLORINE_CONTROLLER_DEFAULTS.SALT_MAX_AGE_DAYS),
                 saltGreenMin: num(raw.salt_green_min, CHLORINE_CONTROLLER_DEFAULTS.SALT_GREEN_MIN),
                 saltGreenMax: num(raw.salt_green_max, CHLORINE_CONTROLLER_DEFAULTS.SALT_GREEN_MAX),
                 phGreenMin: num(raw.ph_green_min, CHLORINE_CONTROLLER_DEFAULTS.PH_GREEN_MIN),

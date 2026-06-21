@@ -62,6 +62,8 @@
           "salt_current_ppm":  { "title": "Current salt (ppm) — last known; update after adding salt", "type": "integer", "default": 2900 },
           "salt_target_ppm":   { "title": "Target salt (ppm)", "type": "integer", "default": 3400 },
           "salt_deadband_ppm": { "title": "Salt deadband (ppm) — don't prompt within this margin", "type": "integer", "default": 150 },
+          "salt_max_age_days": { "title": "Salt reading max age (days)", "type": "integer", "default": 14,
+                              "description": "If the Leslie's salt test is older than this, the advisor stops recommending salt until a fresh test (avoids dosing off stale data and overshooting)." },
           "salt_green_min": { "title": "Salt green band min (ppm)", "type": "integer", "default": 3000 },
           "salt_green_max": { "title": "Salt green band max (ppm)", "type": "integer", "default": 3600 },
           "ph_green_min":   { "title": "pH green band min", "type": "number", "default": 7.2 },

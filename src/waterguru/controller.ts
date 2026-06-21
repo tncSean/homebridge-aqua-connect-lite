@@ -42,6 +42,8 @@ export interface ControllerConfig extends ControlParams {
     saltTargetPpm?: number;
     /** Salt deadband (ppm) — don't prompt within this margin of target. */
     saltDeadbandPpm?: number;
+    /** Max age (days) of a Leslie's salt reading before the advisor treats it as stale. */
+    saltMaxAgeDays: number;
     /** Compliance green bands (per-parameter) for the chemistry tiles. */
     saltGreenMin: number;
     saltGreenMax: number;
@@ -190,9 +192,21 @@ export class WaterGuruController {
         // Salt: prefer Leslie's MEASURED salt when present; else the manual
         // config value (not on RS-485/WG). Log which source fed the tile + NBA.
         const saltBand: Band = { min: this.cfg.saltGreenMin, max: this.cfg.saltGreenMax };
-        const saltPpm = leslies?.salt !== undefined ? leslies.salt : this.cfg.saltCurrentPpm;
-        const saltSource = leslies?.salt !== undefined ? "Leslie's (measured)" : 'config (manual)';
-        this.platform.log.info(`Salt source: ${saltSource} → ${saltPpm} ppm`);
+        const saltFromLeslies = leslies?.salt !== undefined;
+        const saltPpm = saltFromLeslies ? leslies!.salt : this.cfg.saltCurrentPpm;
+        const saltSource = saltFromLeslies ? "Leslie's (measured)" : 'config (manual)';
+        // Staleness: only Leslie's readings carry a test date. A reading older
+        // than saltMaxAgeDays must NOT drive an "add salt" dose (the v3.8.1 bug:
+        // dosing off a month-old test overshot to 4229 ppm). Manual config has
+        // no date → treated as fresh (the owner curates it deliberately).
+        let saltStale = false;
+        let saltAgeDays: number | undefined;
+        if (saltFromLeslies && leslies?.testDate !== undefined) {
+            saltAgeDays = Math.floor((Date.now() - leslies.testDate) / (24 * 60 * 60 * 1000));
+            saltStale = saltAgeDays > this.cfg.saltMaxAgeDays;
+        }
+        const ageStr = saltAgeDays !== undefined ? `, ${saltAgeDays}d old${saltStale ? ' — STALE' : ''}` : '';
+        this.platform.log.info(`Salt source: ${saltSource} → ${saltPpm} ppm${ageStr}`);
         this.sensors.salt?.update(saltPpm, saltBand);
         chem.push({ name: 'Salt', value: saltPpm, unit: 'ppm', band: saltBand });
 
@@ -224,17 +238,34 @@ export class WaterGuruController {
             .filter(p => isOutOfRange(p.value, p.band))
             .map(p => {
                 const item: OutOfRangeParam = { name: p.name, value: p.value as number, unit: p.unit, band: p.band };
-                if (p.name === 'CYA' && (p.value as number) < p.band.min && this.cfg.poolGallons !== undefined) {
+                const v = p.value as number;
+                if (p.name === 'CYA' && v < p.band.min && this.cfg.poolGallons !== undefined) {
                     const oz = cyaDoseOz(
-                        p.value as number,
+                        v,
                         this.cfg.cyaTargetPpm,
                         this.cfg.poolGallons,
                         this.cfg.stabilizerOzPerPpmPer10kGal,
                     );
                     if (oz > 0) item.advice = `add ~${oz} oz stabilizer`;
                 }
+                if (p.name === 'Salt') {
+                    if (v > this.cfg.saltGreenMax) {
+                        // HIGH salt: never advise adding; salt only comes down by dilution.
+                        item.advice = 'above ideal — do not add; lower with a partial water change';
+                    } else if (v < p.band.min && saltStale) {
+                        // LOW but STALE: don't recommend a dose off old data — say so.
+                        item.advice = `reading ${saltAgeDays}d old — not recommending salt until a fresh test`;
+                    }
+                }
                 return item;
             });
+
+        // Log the stale-low decision so it's traceable in the journal.
+        if (saltStale && saltPpm !== undefined && saltPpm < saltBand.min) {
+            this.platform.log.info(
+                `WG: salt reading is ${saltAgeDays}d old — not recommending salt until a fresh test.`,
+            );
+        }
 
         // History bookkeeping.
         if (reading.fc !== undefined) push(this.fcHistory, reading.fc, HISTORY_DAYS);
@@ -250,6 +281,7 @@ export class WaterGuruController {
             saltTargetPpm: this.cfg.saltTargetPpm,
             saltDeadbandPpm: this.cfg.saltDeadbandPpm,
             poolGallons: this.cfg.poolGallons,
+            saltStale,
         });
         if (nba.blocksDrive) {
             this.platform.log.info(`WG: holding chlorinator auto-tune — next best action: ${nba.message}`);

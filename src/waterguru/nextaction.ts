@@ -17,6 +17,12 @@ export interface NextActionInput {
     saltTargetPpm?: number;
     saltDeadbandPpm?: number;   // don't nag within this margin of target
     poolGallons?: number;
+    /**
+     * True when the salt reading is too old to act on (e.g. a month-old Leslie's
+     * test). A stale low reading must NOT trigger an "add salt" recommendation —
+     * dosing off stale data overshoots (the bug this guards). Default false.
+     */
+    saltStale?: boolean;
 }
 
 export interface NextAction {
@@ -74,8 +80,11 @@ export function nextBestAction(input: NextActionInput): NextAction {
     const deadband = input.saltDeadbandPpm ?? 0;
 
     // 1) Salt — foundational: an under-salted cell can't generate, so adding salt
-    //    must precede any % auto-tuning.
+    //    must precede any % auto-tuning. BUT only off a FRESH reading: a stale
+    //    low reading must never trigger a dose (dosing off month-old data
+    //    overshoots — the v3.8.1 bug this guards).
     if (
+        !input.saltStale &&
         typeof saltCurrentPpm === 'number' &&
         typeof saltTargetPpm === 'number' &&
         typeof poolGallons === 'number' &&

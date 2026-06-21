@@ -71,6 +71,29 @@ test('saltDoseLbs returns 0 when current >= target', () => {
     assert.strictEqual(saltDoseLbs(3600, 3400, 31400), 0);
 });
 
+test('STALE + low salt → NO add (guards dosing off month-old data)', () => {
+    const r = nextBestAction({ ...base(), saltCurrentPpm: 2900, saltStale: true });
+    assert.strictEqual(r.kind, 'none');
+    assert.strictEqual(r.active, false);
+    assert.strictEqual(r.blocksDrive, false);
+    assert.strictEqual(r.message, '');
+});
+
+test('FRESH + low salt → add (normal recommendation when reading is current)', () => {
+    const r = nextBestAction({ ...base(), saltCurrentPpm: 2900, saltStale: false });
+    assert.strictEqual(r.kind, 'salt');
+    assert.strictEqual(r.active, true);
+    assert.strictEqual(r.blocksDrive, true);
+    assert.strictEqual(r.message, 'Add 130 lbs salt');
+});
+
+test('FRESH + at-target salt → no add', () => {
+    const r = nextBestAction({ ...base(), saltCurrentPpm: 3500, saltDeadbandPpm: 0, saltStale: false });
+    assert.strictEqual(r.kind, 'none');
+    assert.strictEqual(r.active, false);
+    assert.strictEqual(r.blocksDrive, false);
+});
+
 test('cyaDoseLbs 14→40 @ 31400 gal ≈ 6.5 lbs', () => {
     // (31400/10000) * ((40-14)/10) * 0.8 = 3.14 * 2.6 * 0.8 = 6.5312 → 6.5
     assert.strictEqual(cyaDoseLbs(14, 40, 31400), 6.5);

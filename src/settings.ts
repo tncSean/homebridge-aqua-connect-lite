@@ -31,6 +31,9 @@ export const CHLORINE_CONTROLLER_DEFAULTS = {
     SALT_CURRENT_PPM: 2900,
     SALT_TARGET_PPM: 3400,
     SALT_DEADBAND_PPM: 150,
+    // Max age (days) of a Leslie's salt reading before it's "stale" and the
+    // advisor stops recommending salt (dosing off old data overshoots).
+    SALT_MAX_AGE_DAYS: 14,
     // Compliance green bands (per-parameter [min, max]) for the chemistry tiles.
     SALT_GREEN_MIN: 3000,
     SALT_GREEN_MAX: 3600,
