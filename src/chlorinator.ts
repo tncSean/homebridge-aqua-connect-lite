@@ -139,6 +139,17 @@ export class Chlorinator {
 
     private queueBrightness(target: number): Promise<void> {
         this.pendingTarget = target;
+
+        // If a drive is already in flight, the running step loop re-reads
+        // this.pendingTarget every iteration (see driveTo) and will seamlessly
+        // re-target to this newer value. Do NOT start a second concurrent drive
+        // and do NOT block — just hand off the new target and resolve now so the
+        // HAP request settles (HomeKit otherwise shows "No Response").
+        if (this.writing) {
+            this.log(`re-target in-flight drive → ${target}% (adopted by running loop)`);
+            return Promise.resolve();
+        }
+
         if (this.debounceTimer) {
             // A newer value supersedes the pending debounce window. Resolve every
             // caller queued so far so HAP gets a response (HomeKit coalesces rapid
@@ -173,18 +184,34 @@ export class Chlorinator {
 
     private async flushPending(): Promise<void> {
         if (this.pendingTarget === null || this.writing) return;
-        const target = this.pendingTarget;
-        this.pendingTarget = null;
+        // Keep this.pendingTarget SET for the whole drive — driveTo's step loop
+        // re-reads it every iteration as the live target so a newer slider value
+        // arriving mid-drive re-targets seamlessly (queueBrightness updates it
+        // and short-circuits while writing===true). We snapshot the starting
+        // value but do NOT clear pendingTarget here.
+        const startTarget = this.pendingTarget;
         this.writing = true;
         try {
             // Acquire the shared Settings-menu lock so we never interleave
             // MENU/RIGHT bursts with the Super Chlorinate accessory (they walk
             // the SAME physical menu — concurrent nav would corrupt a setting).
-            await this.client.withMenuLock('chlorinator', () => this.driveTo(target));
+            await this.client.withMenuLock('chlorinator', () => this.driveTo(startTarget));
         } catch (e) {
             this.platform.log.error(`${this.accessory.displayName} adjust failed: ${(e as Error).message}`);
         } finally {
             this.writing = false;
+        }
+        // The drive consumed pendingTarget as its live target. Clear it now that
+        // the loop (which reached whatever the latest value was) has exited.
+        // EDGE CASE: if a brand-new value landed AFTER the loop's final read but
+        // before we cleared, re-run once more so it isn't dropped.
+        const settled = this.pendingTarget;
+        this.pendingTarget = null;
+        const reached = this.client.state.current.chlorinatorPercent;
+        if (settled !== null && typeof reached === 'number' &&
+            clamp(Math.round(settled), 0, 100) !== reached) {
+            this.pendingTarget = settled;
+            await this.flushPending();
         }
     }
 
@@ -208,7 +235,12 @@ export class Chlorinator {
      * observed percent (or null if navigation failed before any step).
      */
     async driveTo(target: number): Promise<number | null> {
-        const tgt = clamp(Math.round(target), 0, 100);
+        // INITIAL target only — the loop re-reads this.pendingTarget every
+        // iteration so a newer HomeKit value mid-drive (e.g. the owner's real
+        // slider drag arriving ~9s after HomeKit's auto turn-on default of 1)
+        // seamlessly re-targets without starting a second drive. `tgt` is the
+        // fallback used when pendingTarget has been consumed/cleared.
+        let tgt = clamp(Math.round(target), 0, 100);
         const start = this.client.state.current.chlorinatorPercent;
         this.log(`drive → ${tgt}% (start=${start ?? 'unknown'}%)`);
 
@@ -229,11 +261,28 @@ export class Chlorinator {
             return null;
         }
         let cur: number = read;
+        // Adopt any target that arrived during nav before announcing the plan.
+        tgt = this.liveTarget(tgt);
         this.log(`at ${cur}%, stepping toward ${tgt}%`);
 
         let presses = 0;
         let stuck = 0;
-        while (cur !== tgt && presses < Chlorinator.STEP_TRIES) {
+        while (true) {
+            // Re-read the LATEST target each iteration. If the owner's drag
+            // updated this.pendingTarget mid-drive (1 → 50), we adopt it here
+            // and keep stepping toward the new value instead of the stale one.
+            const newTgt = this.liveTarget(tgt);
+            if (newTgt !== tgt) {
+                this.log(`target moved ${tgt}% → ${newTgt}% mid-drive — adopting`);
+                tgt = newTgt;
+                // A re-target means progress is being made on a fresh goal; don't
+                // let prior dead presses toward the old target trip the cap.
+                stuck = 0;
+            }
+
+            if (cur === tgt) break;
+            if (presses >= Chlorinator.STEP_TRIES) break;
+
             // SAFETY: only ever press PLUS/MINUS while the panel is on the
             // Chlorinator item. The item blinks "Pool Chlorinator NN%" ↔
             // "Pool Chlorinator" (blank) every ~500ms, so accept either form
@@ -270,6 +319,7 @@ export class Chlorinator {
                 stuck = 0;
                 this.log(`${name} #${presses} → ${cur}% (overshot, will reverse)`);
             } else {
+                // Successful step toward the (possibly newly-adopted) target.
                 cur = after;
                 stuck = 0;
                 this.log(`${name} #${presses} → ${cur}%`);
@@ -357,6 +407,19 @@ export class Chlorinator {
     private readPercent(): number | null {
         const p = this.client.state.current.chlorinatorPercent;
         return typeof p === 'number' ? p : null;
+    }
+
+    /**
+     * The live target the running drive should aim at: the most recent
+     * HomeKit-requested value (this.pendingTarget) if one is queued, else the
+     * supplied fallback (the target this drive started with). Clamped 0-100.
+     * Re-read every step so a slider drag arriving mid-drive re-targets the
+     * in-flight loop instead of being ignored.
+     */
+    private liveTarget(fallback: number): number {
+        const p = this.pendingTarget;
+        const raw = p === null ? fallback : p;
+        return clamp(Math.round(raw), 0, 100);
     }
 
     /**
